@@ -1,6 +1,7 @@
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import React, { useEffect, useRef, useState } from 'react';
 import {
+  ActivityIndicator,
   Alert,
   FlatList,
   KeyboardAvoidingView,
@@ -73,19 +74,31 @@ export default function ChatScreen() {
     };
   }, [id]);
 
-  const fetchMessages = async (myId: string) => {
-    const { data, error } = await supabase
-      .from('messages')
-      .select('*')
-      .or(`and(sender_id.eq.${myId},receiver_id.eq.${id}),and(sender_id.eq.${id},receiver_id.eq.${myId})`)
-      .order('created_at', { ascending: false });
+const [loadingMore, setLoadingMore] = useState(false);
+const [hasMore, setHasMore] = useState(true);
 
-    if (error) {
-      console.error("Fetch Error:", error.message);
-    } else {
-      setMessages(data || []);
-    }
-  };
+const fetchMessages = async (userId?: string, isLoadMore = false) => {
+  const activeUserId = userId ?? currentUserId;
+  if (!activeUserId || loadingMore || (!hasMore && isLoadMore)) return;
+  
+  setLoadingMore(true);
+  const PAGE_SIZE = 20;
+  const start = isLoadMore ? messages.length : 0;
+  const end = start + PAGE_SIZE - 1;
+
+  const { data, error } = await supabase
+    .from('messages')
+    .select('*')
+    .or(`and(sender_id.eq.${activeUserId},receiver_id.eq.${id}),and(sender_id.eq.${id},receiver_id.eq.${activeUserId})`)
+    .order('created_at', { ascending: false })
+    .range(start, end); 
+
+  if (data) {
+    setMessages(prev => isLoadMore ? [...prev, ...data] : data);
+    setHasMore(data.length === PAGE_SIZE);
+  }
+  setLoadingMore(false);
+};
 
   const sendMessage = async () => {
     if (!newMessage.trim() || !currentUserId) return;
@@ -131,6 +144,9 @@ export default function ChatScreen() {
           inverted
           keyExtractor={(item) => item.id}
           contentContainerStyle={{ paddingBottom: 20 }}
+          onEndReached={() => fetchMessages(undefined, true)} // Load more when user scrolls up
+          onEndReachedThreshold={0.5}
+          ListFooterComponent={loadingMore ? <ActivityIndicator color="#00FF00" /> : null}
           renderItem={({ item }) => {
             const isMine = item.sender_id === currentUserId;
             return (

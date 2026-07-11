@@ -45,9 +45,10 @@ export default function InboxScreen() {
           <TouchableOpacity 
             style={styles.chatItem}
             onPress={() =>
-              router.push(
-                `/chat/${item.following_id}?name=${encodeURIComponent(item.users.username)}` as any
-              )
+              router.push({
+                pathname: '/chat/[id]',
+                params: { id: item.following_id, name: item.users.username },
+              })
             }
           >
             <View style={styles.avatar}>
