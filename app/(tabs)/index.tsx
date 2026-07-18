@@ -23,6 +23,8 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import DonateModal from '../../components/DonateModal';
 import { supabase } from '../../supabase';
 
+import VideoPost from '../../components/VideoPost';
+
 const { height, width } = Dimensions.get('window');
 
 type VideoItem = { 

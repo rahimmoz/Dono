@@ -1,0 +1,247 @@
+import { ResizeMode, Video } from 'expo-av';
+import { useEffect, useRef, useState } from 'react';
+import {
+    Alert,
+    Animated,
+    Platform,
+    Pressable,
+    StyleSheet,
+    Text,
+    TouchableOpacity,
+    View
+} from 'react-native';
+import { supabase } from '../../supabase';
+// ==========================================
+// 4. VIDEO POST COMPONENT
+// ==========================================
+const VideoPost = ({ video, onDonate, isActive, currentUserId, onOpenComments }: VideoPostProps) => {
+  const [isPaused, setIsPaused] = useState(false);
+  const [isLiked, setIsLiked] = useState(false);
+  const [likeCount, setLikeCount] = useState(video.likes_count || 0); 
+  const [isFollowing, setIsFollowing] = useState(false);
+
+  const heartScale = useRef(new Animated.Value(0)).current;
+  const heartOpacity = useRef(new Animated.Value(0)).current;
+  const spinValue = useRef(new Animated.Value(0)).current;
+  const lastTap = useRef(0);
+
+  useEffect(() => {
+    Animated.loop(Animated.timing(spinValue, { toValue: 1, duration: 3000, useNativeDriver: true })).start();
+  }, []);
+
+  const spin = spinValue.interpolate({ inputRange: [0, 1], outputRange: ['0deg', '360deg'] });
+
+  const bumpInterestScore = async (points: number) => {
+    if (!currentUserId || !video.category) return;
+    try {
+      await supabase.from('user_interests').upsert({
+        user_id: currentUserId,
+        category: video.category,
+        score: points 
+      }, { onConflict: 'user_id, category' });
+    } catch (error) {
+      console.log('Algorithm update failed silently', error);
+    }
+  };
+
+  useEffect(() => {
+    let watchTimer: ReturnType<typeof setTimeout> | undefined;
+    if (isActive && currentUserId) {
+      watchTimer = setTimeout(() => {
+        bumpInterestScore(1);
+      }, 3000); 
+    }
+    return () => {
+      if (watchTimer) clearTimeout(watchTimer);
+    }; 
+  }, [isActive, currentUserId, video.category]);
+
+  const handleTap = () => {
+    const now = Date.now();
+    const DOUBLE_PRESS_DELAY = 300; 
+
+    if (now - lastTap.current < DOUBLE_PRESS_DELAY) {
+      triggerDoubleTapLike();
+    } else {
+      setIsPaused(!isPaused);
+    }
+    lastTap.current = now;
+  };
+
+  const triggerDoubleTapLike = () => {
+    if (!isLiked) handleLike();
+    Animated.sequence([
+      Animated.parallel([
+        Animated.spring(heartScale, { toValue: 1, friction: 3, useNativeDriver: true }),
+        Animated.timing(heartOpacity, { toValue: 1, duration: 100, useNativeDriver: true })
+      ]),
+      Animated.delay(600), 
+      Animated.timing(heartOpacity, { toValue: 0, duration: 200, useNativeDriver: true }),
+    ]).start(() => heartScale.setValue(0));
+  };
+
+  useEffect(() => {
+    const checkStatus = async () => {
+      if (!currentUserId) return;
+      const { data: likeData } = await supabase.from('likes').select('id').eq('video_id', video.id).eq('user_id', currentUserId).single();
+      if (likeData) setIsLiked(true);
+
+      if (currentUserId !== video.creator_id) {
+        const { data: followData } = await supabase.from('follows').select('id').eq('follower_id', currentUserId).eq('following_id', video.creator_id).single();
+        if (followData) setIsFollowing(true);
+      }
+    };
+    checkStatus();
+  }, [video.id, currentUserId]);
+  
+  const handleLike = async () => {
+    if (!currentUserId) return Alert.alert("Login to like videos!");
+    if (isLiked) {
+      const { error } = await supabase.from('likes').delete().eq('video_id', video.id).eq('user_id', currentUserId);
+      if (!error) { setIsLiked(false); setLikeCount(prev => prev - 1); }
+    } else {
+      const { error } = await supabase.from('likes').insert({ video_id: video.id, user_id: currentUserId });
+      if (!error) { 
+        setIsLiked(true); 
+        setLikeCount(prev => prev + 1); 
+        bumpInterestScore(3); 
+      }
+    }
+  };
+
+  const handleFollow = async () => {
+    if (!currentUserId) return Alert.alert("Login to follow creators!");
+    if (isFollowing) {
+      const { error } = await supabase.from('follows').delete().eq('follower_id', currentUserId).eq('following_id', video.creator_id);
+      if (!error) setIsFollowing(false);
+    } else {
+      const { error } = await supabase.from('follows').insert({ follower_id: currentUserId, following_id: video.creator_id });
+      if (!error) setIsFollowing(true);
+    }
+  };
+
+  return (
+    <View style={styles.videoContainer}>
+      <Pressable style={StyleSheet.absoluteFill} onPress={handleTap}>
+        <Video style={StyleSheet.absoluteFill} source={{ uri: video.video_url }} resizeMode={ResizeMode.COVER} isLooping shouldPlay={isActive && !isPaused} isMuted={!isActive} />
+        {isPaused && (
+           <View style={styles.pauseOverlay} pointerEvents="none">
+             <Text style={styles.playIcon}>▶️</Text>
+           </View>
+        )}
+        <Animated.View style={[styles.floatingHeartContainer, { opacity: heartOpacity, transform: [{ scale: heartScale }] }]} pointerEvents="none">
+          <Text style={styles.giantHeart}>❤️</Text>
+        </Animated.View>
+      </Pressable>
+
+      <View style={styles.uiOverlay} pointerEvents="box-none">
+        <View style={styles.bottomLeft}>
+          <View style={styles.creatorRow}>
+            <Text style={styles.creatorText}>{video.creator}</Text>
+            {currentUserId && currentUserId !== video.creator_id && (
+              <TouchableOpacity style={[styles.followBtn, isFollowing ? styles.followingBtn : null]} onPress={handleFollow}>
+                <Text style={styles.followBtnText}>{isFollowing ? 'Following' : 'Follow'}</Text>
+              </TouchableOpacity>
+            )}
+          </View>
+          <Text style={styles.descriptionText}>{video.description}</Text>
+          <View style={styles.audioRow}>
+            <Text style={styles.audioIcon}>🎵</Text>
+            <Text style={styles.audioText} numberOfLines={1}>{video.audios?.name || `Original Sound - ${video.creator}`}</Text>
+          </View>
+        </View>
+
+        <View style={styles.sideBar} pointerEvents="box-none">
+          <TouchableOpacity style={styles.actionButton} onPress={handleLike}><Text style={styles.actionIcon}>{isLiked ? '❤️' : '🤍'}</Text><Text style={styles.actionText}>{likeCount}</Text></TouchableOpacity>
+          <TouchableOpacity style={styles.actionButton} onPress={() => onOpenComments(video.id)}><Text style={styles.actionIcon}>💬</Text><Text style={styles.actionText}>View</Text></TouchableOpacity>
+          <TouchableOpacity style={[styles.actionButton, styles.donateButton]} onPress={() => onDonate(video.id, video.creator_id, video.creator)}>
+            <Text style={styles.actionIcon}>🪙</Text>
+            <Text style={styles.actionText}>Donate</Text>
+          </TouchableOpacity>
+          <Animated.View style={[styles.recordContainer, { transform: [{ rotate: spin }] }]}><Text style={styles.recordIcon}>💿</Text></Animated.View>
+        </View>
+      </View>
+    </View>
+  );
+};
+
+const styles = StyleSheet.create({
+  container: { flex: 1, backgroundColor: '#000' },
+  videoContainer: { height: height, width: '100%', justifyContent: 'center' },
+  topNav: { position: 'absolute', zIndex: 100, width: '100%', flexDirection: 'row', justifyContent: 'center', alignItems: 'center' },
+  navText: { color: 'rgba(255,255,255,0.6)', fontSize: 18, fontWeight: 'bold' },
+  navTextActive: { color: '#fff', textShadowColor: 'rgba(0,0,0,0.8)', textShadowRadius: 10 },
+  navSeparator: { color: 'rgba(255,255,255,0.4)', marginHorizontal: 15, fontSize: 16 },
+  globalWallet: { position: 'absolute', top: 100, left: 20, zIndex: 10, backgroundColor: 'rgba(0,0,0,0.5)', paddingHorizontal: 15, paddingVertical: 8, borderRadius: 20, borderWidth: 1, borderColor: 'rgba(255,255,255,0.2)' },
+  balanceText: { color: '#00FF00', fontSize: 14, fontWeight: 'bold' },
+  emptyFeed: { flex: 1, justifyContent: 'center', alignItems: 'center', paddingHorizontal: 40 },
+  emptyFeedText: { color: '#888', textAlign: 'center', fontSize: 16, lineHeight: 24 },
+  uiOverlay: { ...StyleSheet.absoluteFillObject, justifyContent: 'flex-end', paddingBottom: Platform.OS === 'android' ? 120 : 100, paddingHorizontal: 15, flexDirection: 'row', alignItems: 'flex-end' },
+  bottomLeft: { flex: 1, paddingRight: 20 },
+  creatorRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 5 },
+  creatorText: { color: '#fff', fontSize: 18, fontWeight: 'bold', textShadowColor: 'rgba(0,0,0,0.8)', textShadowRadius: 10 },
+  followBtn: { marginLeft: 10, backgroundColor: '#00FF00', paddingHorizontal: 12, paddingVertical: 4, borderRadius: 4 },
+  followingBtn: { backgroundColor: 'transparent', borderWidth: 1, borderColor: '#fff' },
+  followBtnText: { color: '#000', fontWeight: 'bold', fontSize: 12 },
+  descriptionText: { color: '#fff', fontSize: 14, textShadowColor: 'rgba(0,0,0,0.8)', textShadowRadius: 10 },
+  sideBar: { alignItems: 'center', justifyContent: 'flex-end' },
+  actionButton: { alignItems: 'center', marginBottom: 20 },
+  actionIcon: { fontSize: 32, textShadowColor: 'rgba(0,0,0,0.8)', textShadowRadius: 10 },
+  actionText: { color: '#fff', fontWeight: '600', marginTop: 4, fontSize: 13 },
+  donateButton: { backgroundColor: 'rgba(0,0,0,0.4)', padding: 10, borderRadius: 50, borderWidth: 1, borderColor: 'rgba(255,255,255,0.4)' },
+  pauseOverlay: { ...StyleSheet.absoluteFillObject, justifyContent: 'center', alignItems: 'center', backgroundColor: 'rgba(0,0,0,0.2)' },
+  playIcon: { fontSize: 80, opacity: 0.8 },
+  authContainer: { flex: 1, backgroundColor: '#000', justifyContent: 'center', padding: 20 },
+  authTitle: { color: '#fff', fontSize: 32, fontWeight: 'bold', marginBottom: 30, textAlign: 'center' },
+  input: { backgroundColor: '#111', color: '#fff', padding: 15, borderRadius: 10, marginBottom: 15, fontSize: 16, borderWidth: 1, borderColor: '#333' },
+  authBtn: { backgroundColor: '#00FF00', padding: 15, borderRadius: 10, alignItems: 'center', marginTop: 10 },
+  authBtnText: { color: '#000', fontSize: 18, fontWeight: 'bold' },
+  switchText: { color: '#888', textAlign: 'center', marginTop: 20, fontSize: 14 },
+  floatingHeartContainer: { ...StyleSheet.absoluteFillObject, justifyContent: 'center', alignItems: 'center', zIndex: 10 },
+  giantHeart: { fontSize: 120, textShadowColor: 'rgba(0,0,0,0.4)', textShadowRadius: 20 },
+  audioRow: { flexDirection: 'row', alignItems: 'center', marginTop: 10 },
+  audioIcon: { fontSize: 14, marginRight: 5 },
+  audioText: { color: '#fff', fontSize: 14, width: '80%', textShadowColor: 'rgba(0,0,0,0.8)', textShadowRadius: 10 },
+  recordContainer: { width: 50, height: 50, borderRadius: 25, backgroundColor: '#222', justifyContent: 'center', alignItems: 'center', marginTop: 10, borderWidth: 8, borderColor: '#111' },
+  recordIcon: { fontSize: 24 },
+  modalBackdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.4)', justifyContent: 'flex-end' },
+  modalCloseArea: { flex: 1 },
+  bottomSheet: { backgroundColor: '#111', borderTopLeftRadius: 20, borderTopRightRadius: 20, height: '65%', paddingBottom: 20 },
+  commentHeader: { flexDirection: 'row', justifyContent: 'center', alignItems: 'center', padding: 15, borderBottomWidth: 1, borderBottomColor: '#222' },
+  commentTitle: { color: 'white', fontWeight: 'bold', fontSize: 16 },
+  closeModalBtn: { position: 'absolute', right: 15 },
+  commentItem: { flexDirection: 'row', marginBottom: 15, paddingHorizontal: 15 },
+  commentAvatar: { width: 36, height: 36, borderRadius: 18, marginRight: 10, backgroundColor: '#333', justifyContent: 'center', alignItems: 'center' },
+  commentAvatarImg: { width: 36, height: 36, borderRadius: 18, marginRight: 10 },
+  commentAvatarText: { color: '#fff', fontWeight: 'bold', fontSize: 16 },
+  commentContent: { flex: 1 },
+  commentUser: { color: '#888', fontSize: 12, fontWeight: 'bold', marginBottom: 2 },
+  commentText: { color: 'white', fontSize: 14 },
+  commentInputContainer: { flexDirection: 'row', padding: 15, borderTopWidth: 1, borderTopColor: '#222', alignItems: 'center' },
+  commentInput: { flex: 1, backgroundColor: '#222', color: '#fff', borderRadius: 20, paddingHorizontal: 15, paddingVertical: 10, marginRight: 10 },
+  postBtnText: { color: '#00FF00', fontWeight: 'bold', fontSize: 16 },
+
+  // 🚨 NEW: ANIMATION STYLES
+  neonBorder: { ...StyleSheet.absoluteFillObject, borderWidth: 8, zIndex: 998 },
+  animCenterContainer: { ...StyleSheet.absoluteFillObject, justifyContent: 'center', alignItems: 'center', zIndex: 999 },
+  animBox: { padding: 30, alignItems: 'center', shadowOffset: { width: 0, height: 0 }, shadowOpacity: 1, shadowRadius: 30 },
+  animTitle: { fontSize: 36, fontWeight: '900', fontStyle: 'italic', marginBottom: 10, textShadowRadius: 15, textShadowOffset: { width: 0, height: 0 } },
+  animSub: { color: '#ccc', fontSize: 18, fontWeight: '600' },
+
+  topRightActions: { 
+  flex: 1, 
+  flexDirection: 'row', 
+  justifyContent: 'flex-end', 
+  paddingRight: 20 
+},
+topIcon: { 
+  fontSize: 22, 
+  color: '#fff', 
+  textShadowColor: 'rgba(0,0,0,0.8)', 
+  textShadowRadius: 10 
+},
+feedSwitcher: { 
+  flexDirection: 'row', 
+  alignItems: 'center' 
+},
+});
