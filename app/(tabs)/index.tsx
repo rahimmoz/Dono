@@ -1,4 +1,3 @@
-import { ResizeMode, Video } from 'expo-av';
 import { router, useLocalSearchParams } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { useEffect, useRef, useState } from 'react';
@@ -45,6 +44,7 @@ type VideoPostProps = {
   currentUserId: string | null; 
   onOpenComments: (videoId: string) => void; 
 };
+
 
 // ==========================================
 // 1. AUTH SCREEN
@@ -224,160 +224,6 @@ const DonationAnimation = ({ donation, onComplete }: { donation: { amount: numbe
           <Text style={[styles.animTitle, { color: theme.color, textShadowColor: theme.shadow }]}>{theme.title}</Text>
           <Text style={styles.animSub}>You sent <Text style={{fontWeight: 'bold', color: '#fff'}}>{donation.amount} 🪙</Text> to {donation.receiver}!</Text>
         </Animated.View>
-      </View>
-    </View>
-  );
-};
-
-// ==========================================
-// 4. VIDEO POST COMPONENT
-// ==========================================
-const VideoPost = ({ video, onDonate, isActive, currentUserId, onOpenComments }: VideoPostProps) => {
-  const [isPaused, setIsPaused] = useState(false);
-  const [isLiked, setIsLiked] = useState(false);
-  const [likeCount, setLikeCount] = useState(video.likes_count || 0); 
-  const [isFollowing, setIsFollowing] = useState(false);
-
-  const heartScale = useRef(new Animated.Value(0)).current;
-  const heartOpacity = useRef(new Animated.Value(0)).current;
-  const spinValue = useRef(new Animated.Value(0)).current;
-  const lastTap = useRef(0);
-
-  useEffect(() => {
-    Animated.loop(Animated.timing(spinValue, { toValue: 1, duration: 3000, useNativeDriver: true })).start();
-  }, []);
-
-  const spin = spinValue.interpolate({ inputRange: [0, 1], outputRange: ['0deg', '360deg'] });
-
-  const bumpInterestScore = async (points: number) => {
-    if (!currentUserId || !video.category) return;
-    try {
-      await supabase.from('user_interests').upsert({
-        user_id: currentUserId,
-        category: video.category,
-        score: points 
-      }, { onConflict: 'user_id, category' });
-    } catch (error) {
-      console.log('Algorithm update failed silently', error);
-    }
-  };
-
-  useEffect(() => {
-    let watchTimer: ReturnType<typeof setTimeout> | undefined;
-    if (isActive && currentUserId) {
-      watchTimer = setTimeout(() => {
-        bumpInterestScore(1);
-      }, 3000); 
-    }
-    return () => {
-      if (watchTimer) clearTimeout(watchTimer);
-    }; 
-  }, [isActive, currentUserId, video.category]);
-
-  const handleTap = () => {
-    const now = Date.now();
-    const DOUBLE_PRESS_DELAY = 300; 
-
-    if (now - lastTap.current < DOUBLE_PRESS_DELAY) {
-      triggerDoubleTapLike();
-    } else {
-      setIsPaused(!isPaused);
-    }
-    lastTap.current = now;
-  };
-
-  const triggerDoubleTapLike = () => {
-    if (!isLiked) handleLike();
-    Animated.sequence([
-      Animated.parallel([
-        Animated.spring(heartScale, { toValue: 1, friction: 3, useNativeDriver: true }),
-        Animated.timing(heartOpacity, { toValue: 1, duration: 100, useNativeDriver: true })
-      ]),
-      Animated.delay(600), 
-      Animated.timing(heartOpacity, { toValue: 0, duration: 200, useNativeDriver: true }),
-    ]).start(() => heartScale.setValue(0));
-  };
-
-  useEffect(() => {
-    const checkStatus = async () => {
-      if (!currentUserId) return;
-      const { data: likeData } = await supabase.from('likes').select('id').eq('video_id', video.id).eq('user_id', currentUserId).single();
-      if (likeData) setIsLiked(true);
-
-      if (currentUserId !== video.creator_id) {
-        const { data: followData } = await supabase.from('follows').select('id').eq('follower_id', currentUserId).eq('following_id', video.creator_id).single();
-        if (followData) setIsFollowing(true);
-      }
-    };
-    checkStatus();
-  }, [video.id, currentUserId]);
-  
-  const handleLike = async () => {
-    if (!currentUserId) return Alert.alert("Login to like videos!");
-    if (isLiked) {
-      const { error } = await supabase.from('likes').delete().eq('video_id', video.id).eq('user_id', currentUserId);
-      if (!error) { setIsLiked(false); setLikeCount(prev => prev - 1); }
-    } else {
-      const { error } = await supabase.from('likes').insert({ video_id: video.id, user_id: currentUserId });
-      if (!error) { 
-        setIsLiked(true); 
-        setLikeCount(prev => prev + 1); 
-        bumpInterestScore(3); 
-      }
-    }
-  };
-
-  const handleFollow = async () => {
-    if (!currentUserId) return Alert.alert("Login to follow creators!");
-    if (isFollowing) {
-      const { error } = await supabase.from('follows').delete().eq('follower_id', currentUserId).eq('following_id', video.creator_id);
-      if (!error) setIsFollowing(false);
-    } else {
-      const { error } = await supabase.from('follows').insert({ follower_id: currentUserId, following_id: video.creator_id });
-      if (!error) setIsFollowing(true);
-    }
-  };
-
-  return (
-    <View style={styles.videoContainer}>
-      <Pressable style={StyleSheet.absoluteFill} onPress={handleTap}>
-        <Video style={StyleSheet.absoluteFill} source={{ uri: video.video_url }} resizeMode={ResizeMode.COVER} isLooping shouldPlay={isActive && !isPaused} isMuted={!isActive} />
-        {isPaused && (
-           <View style={styles.pauseOverlay} pointerEvents="none">
-             <Text style={styles.playIcon}>▶️</Text>
-           </View>
-        )}
-        <Animated.View style={[styles.floatingHeartContainer, { opacity: heartOpacity, transform: [{ scale: heartScale }] }]} pointerEvents="none">
-          <Text style={styles.giantHeart}>❤️</Text>
-        </Animated.View>
-      </Pressable>
-
-      <View style={styles.uiOverlay} pointerEvents="box-none">
-        <View style={styles.bottomLeft}>
-          <View style={styles.creatorRow}>
-            <Text style={styles.creatorText}>{video.creator}</Text>
-            {currentUserId && currentUserId !== video.creator_id && (
-              <TouchableOpacity style={[styles.followBtn, isFollowing ? styles.followingBtn : null]} onPress={handleFollow}>
-                <Text style={styles.followBtnText}>{isFollowing ? 'Following' : 'Follow'}</Text>
-              </TouchableOpacity>
-            )}
-          </View>
-          <Text style={styles.descriptionText}>{video.description}</Text>
-          <View style={styles.audioRow}>
-            <Text style={styles.audioIcon}>🎵</Text>
-            <Text style={styles.audioText} numberOfLines={1}>{video.audios?.name || `Original Sound - ${video.creator}`}</Text>
-          </View>
-        </View>
-
-        <View style={styles.sideBar} pointerEvents="box-none">
-          <TouchableOpacity style={styles.actionButton} onPress={handleLike}><Text style={styles.actionIcon}>{isLiked ? '❤️' : '🤍'}</Text><Text style={styles.actionText}>{likeCount}</Text></TouchableOpacity>
-          <TouchableOpacity style={styles.actionButton} onPress={() => onOpenComments(video.id)}><Text style={styles.actionIcon}>💬</Text><Text style={styles.actionText}>View</Text></TouchableOpacity>
-          <TouchableOpacity style={[styles.actionButton, styles.donateButton]} onPress={() => onDonate(video.id, video.creator_id, video.creator)}>
-            <Text style={styles.actionIcon}>🪙</Text>
-            <Text style={styles.actionText}>Donate</Text>
-          </TouchableOpacity>
-          <Animated.View style={[styles.recordContainer, { transform: [{ rotate: spin }] }]}><Text style={styles.recordIcon}>💿</Text></Animated.View>
-        </View>
       </View>
     </View>
   );

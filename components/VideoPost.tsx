@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from 'react';
 import {
     Alert,
     Animated,
+    Dimensions,
     Platform,
     Pressable,
     StyleSheet,
@@ -10,7 +11,31 @@ import {
     TouchableOpacity,
     View
 } from 'react-native';
-import { supabase } from '../../supabase';
+import { supabase } from '../supabase';
+
+
+const { height, width } = Dimensions.get('window');
+
+type VideoItem = { 
+  id: string; 
+  creator: string; 
+  creator_id: string; 
+  video_url: string; 
+  description: string; 
+  likes_count: number; 
+  category?: string; 
+  audios?: { name: string } | null; 
+};
+
+type VideoPostProps = { 
+  video: VideoItem; 
+  onDonate: (videoId: string, receiverId: string, receiverName: string) => void; 
+  isActive: boolean; 
+  currentUserId: string | null; 
+  onOpenComments: (videoId: string) => void; 
+};
+
+
 // ==========================================
 // 4. VIDEO POST COMPONENT
 // ==========================================
@@ -164,6 +189,8 @@ const VideoPost = ({ video, onDonate, isActive, currentUserId, onOpenComments }:
     </View>
   );
 };
+
+export default VideoPost;
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#000' },
