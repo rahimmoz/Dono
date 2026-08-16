@@ -1,20 +1,17 @@
 import { ResizeMode, Video } from 'expo-av';
 import { useEffect, useRef, useState } from 'react';
 import {
-    Alert,
-    Animated,
-    Dimensions,
-    Platform,
-    Pressable,
-    StyleSheet,
-    Text,
-    TouchableOpacity,
-    View
+  Alert,
+  Animated,
+  Dimensions,
+  Platform,
+  Pressable,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View
 } from 'react-native';
 import { supabase } from '../supabase';
-import DonateModal from './DonateModal';
-
-
 
 
 const { height, width } = Dimensions.get('window');
@@ -47,12 +44,7 @@ type VideoPostProps = {
 // VIDEO POST COMPONENT
 // ==========================================
 const VideoPost = ({ video, onDonate, isActive, currentUserId, onOpenComments }: VideoPostProps) => {
-  const [isModalVisible, setModalVisible] = useState(false);
 
-  const handleAmountSelected = (amount: number) => {
-    onDonate(video.id, video.creator_id, video.creator, amount);
-    setModalVisible(false);
-  };
   const [isPaused, setIsPaused] = useState(false);
   const [isLiked, setIsLiked] = useState(false);
   const [likeCount, setLikeCount] = useState(video.likes_count || 0); 
@@ -172,12 +164,6 @@ const VideoPost = ({ video, onDonate, isActive, currentUserId, onOpenComments }:
         </Animated.View>
       </Pressable>
 
-      {/* Your Donate Button (Update the onPress!) */}
-      <TouchableOpacity onPress={() => setModalVisible(true)}>
-         {/* Your icon or text here */}
-         <Text>🎁 Donate</Text> 
-      </TouchableOpacity>
-
       <View style={styles.uiOverlay} pointerEvents="box-none">
         <View style={styles.bottomLeft}>
           <View style={styles.creatorRow}>
@@ -206,16 +192,6 @@ const VideoPost = ({ video, onDonate, isActive, currentUserId, onOpenComments }:
         </View>
       </View>
 
-      {/* 4. Render the modal at the very bottom of the component */}
-      <DonateModal
-        {...({
-          visible: isModalVisible,
-          onClose: () => setModalVisible(false),
-          onConfirm: handleAmountSelected,
-          onSelectAmount: handleAmountSelected,
-          onSubmit: handleAmountSelected,
-        } as any)}
-      />
     </View>
   );
 };
