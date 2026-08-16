@@ -243,6 +243,13 @@ export default function App() {
   const [refreshing, setRefreshing] = useState(false);
   const [feedType, setFeedType] = useState<'foryou' | 'following'>('foryou');
   const [commentVideoId, setCommentVideoId] = useState<string | null>(null);
+  const [isDonating, setIsDonating] = useState(false);
+
+  const PAGE_SIZE = 5; // How many videos to load per swipe
+
+  const [page, setPage] = useState(0); // Tracks current page
+  const [hasMore, setHasMore] = useState(true); // Tells us if the database is empty
+  const [isLoadingMore, setIsLoadingMore] = useState(false); // Prevents duplicate fetches
 
   const [donateData, setDonateData] = useState<{videoId: string, receiverId: string, receiverName: string} | null>(null);
   
@@ -258,61 +265,148 @@ export default function App() {
     },
   ]);
 
-  const fetchData = async (userId: string, selectedFeed: 'foryou' | 'following' = feedType) => {
-    setIsLoading(true);
-    try {
+// 1. Add pageNumber to your function parameters (defaults to 0)
+const fetchData = async (userId: string, selectedFeed: 'foryou' | 'following' = feedType, pageNumber = 0) => {
+  // 2. Prevent fetching if we are already loading infinite scroll or have no more videos
+  if (pageNumber > 0 && (isLoadingMore || !hasMore)) return;
+
+  if (pageNumber === 0) {
+    setIsLoading(true); // First load
+  } else {
+    setIsLoadingMore(true); // Scrolling load
+  }
+
+  try {
+    // 3. Keep your Wallet fetch (We only need to fetch this on the first load, page 0)
+    if (pageNumber === 0) {
       const { data: walletData } = await supabase.from('users').select('wallet_balance').eq('id', userId).single();
       setWalletBalance(walletData?.wallet_balance ?? 0);
+    }
 
-      const baseQuery = supabase
-        .from('videos')
-        .select('id, creator_id, video_url, description, likes_count, category, users(username), audios(name)') 
-        .order('created_at', { ascending: false });
-
-      let rawVideosData = [];
-
-      if (selectedFeed === 'following') {
-        const { data: followingData, error: followingError } = await supabase.from('follows').select('following_id').eq('follower_id', userId);
-        if (followingError) throw followingError;
-
-        const followingIds = (followingData || []).map((row: any) => row.following_id);
-        if (followingIds.length === 0) {
-          setVideos([]); setIsLoading(false); setRefreshing(false); return;
-        }
-        const { data: videosData, error: videosError } = await baseQuery.in('creator_id', followingIds);
-        if (videosError) throw videosError;
-        rawVideosData = videosData || [];
-      } else {
-        const { data: interests } = await supabase.from('user_interests').select('category').eq('user_id', userId).order('score', { ascending: false }).limit(2);
-        const topCategories = interests?.map(i => i.category) || [];
-        let targetedVideosData: any[] = [];
-
-        if (topCategories.length > 0) {
-          const { data: targetedVideos } = await supabase.from('videos').select('id, creator_id, video_url, description, likes_count, category, users(username), audios(name)')
-            .in('category', topCategories).order('created_at', { ascending: false }).limit(5);
-          targetedVideosData = targetedVideos || [];
-        }
-
-        const { data: generalVideos, error: videosError } = await baseQuery.limit(10);
-        if (videosError) throw videosError;
-
-        const allVideos = [...targetedVideosData, ...(generalVideos || [])];
-        const uniqueVideosMap = new Map(allVideos.map(item => [item.id, item]));
-        const uniqueVideos = Array.from(uniqueVideosMap.values());
-        rawVideosData = uniqueVideos.sort(() => Math.random() - 0.5);
+    // 4. Keep your awesome relational query
+    let baseQuery = supabase
+      .from('videos')
+      .select('id, creator_id, video_url, description, likes_count, category, users(username), audios(name)')
+      .order('created_at', { ascending: false });
+    
+    // --- ADD THIS NEW FOLLOWING FEED LOGIC ---
+    if (selectedFeed === 'following') {
+      // A. Fetch the IDs of the creators the current user follows
+      const { data: followData, error: followError } = await supabase
+        .from('follows') // Make sure this matches your actual table name!
+        .select('following_id') 
+        .eq('follower_id', userId);
+      
+    if (followError) {
+        console.error("Error fetching followers:", followError);
+        // If there's an error, we might want to gracefully fail
+        setIsLoading(false);
+        setIsLoadingMore(false);
+        return; 
       }
 
-      const formattedVideos = rawVideosData.map((video: any) => ({
-        ...video, creator: video.users ? '@' + video.users.username : '@unknown'
-      }));
+    // B. Extract the IDs into a simple array: ['user1', 'user2', ...]
+      const followingIds = followData ? followData.map(f => f.following_id) : [];
 
-      setVideos(formattedVideos);
-    } catch (error: any) {
-      Alert.alert('Error', error?.message || 'Failed to load feed.');
+      // C. If they don't follow anyone, immediately stop and show an empty feed
+      if (followingIds.length === 0) {
+        if (pageNumber === 0) setVideos([]);
+        setHasMore(false);
+        setIsLoading(false);
+        setIsLoadingMore(false);
+        return; 
+      }
+
+      // D. Filter the main query to ONLY include videos from these creators
+      baseQuery = baseQuery.in('creator_id', followingIds);
+    }
+    // -----------------------------------------
+  
+
+    // 5. THE MAGIC: Calculate range and append it to your baseQuery
+    const from = pageNumber * PAGE_SIZE;
+    const to = from + PAGE_SIZE - 1;
+    baseQuery = baseQuery.range(from, to);
+
+    // 6. Execute the query
+    const { data: rawVideosData, error } = await baseQuery;
+
+    if (error) {
+      console.error("Error fetching videos:", error);
+    } else if (rawVideosData) {
+      
+      // 7. Check if we hit the end of the database
+      if (rawVideosData.length < PAGE_SIZE) {
+        setHasMore(false);
+      }
+
+      // 8. Update the state (Replace if page 0, append if scrolling)
+      if (rawVideosData && Array.isArray(rawVideosData)) {
+        // Normalize Supabase relational response to our VideoItem type
+        const mapped = rawVideosData.map((v: any) => ({
+          id: v.id,
+          creator: v.users?.[0]?.username ?? '',
+          creator_id: v.creator_id,
+          video_url: v.video_url,
+          description: v.description,
+          likes_count: v.likes_count ?? 0,
+          category: v.category,
+          audios: Array.isArray(v.audios) ? (v.audios[0] ?? null) : (v.audios ?? null),
+        } as VideoItem));
+
+        if (pageNumber === 0) {
+          setVideos(mapped);
+        } else {
+          setVideos(prev => [...prev, ...mapped]);
+        }
+      }
+      
+      setPage(pageNumber);
+    }
+
+  } catch (error) {
+    console.error("Fetch Error:", error);
+  } finally {
+    setIsLoading(false);
+    setIsLoadingMore(false);
+  }
+
+
+const handleDonate = async (creatorId: string, amount: number, videoId: string) => {
+    const currentUserId = session?.user?.id;
+    
+    if (!currentUserId || isDonating) return;
+
+    if (walletBalance < amount) {
+      alert("Insufficient funds! Please recharge your wallet.");
+      return;
+    }
+
+    setIsDonating(true);
+
+    try {
+      // Calling our updated RPC function that now passes the target_video_id
+      const { error } = await supabase.rpc('donate_coins', {
+        sender_id: currentUserId,
+        receiver_id: creatorId,
+        donation_amount: amount,
+        target_video_id: videoId 
+      });
+
+      if (error) {
+        console.error("Donation failed:", error.message);
+        alert(error.message || "Something went wrong.");
+      } else {
+        setWalletBalance((prev) => prev - amount);
+        alert(`Successfully donated ${amount} coins!`);
+      }
+    } catch (err) {
+      console.error("Unexpected error:", err);
     } finally {
-      setIsLoading(false); setRefreshing(false);
+      setIsDonating(false);
     }
   };
+};
 
   const onRefresh = async () => {
     if (!session?.user?.id) return;
@@ -434,10 +528,10 @@ return (
           renderItem={({ item }) => (
             <VideoPost 
               video={item} 
-              onDonate={handleOpenDonate}
               isActive={activeVideoId === item.id} 
               currentUserId={session?.user?.id} 
-              onOpenComments={setCommentVideoId} 
+              onOpenComments={setCommentVideoId}
+              onDonate={(amount) => handleDonate(item.creator_id, amount)} 
             />
           )}
           keyExtractor={item => item.id}
@@ -449,6 +543,9 @@ return (
           viewabilityConfigCallbackPairs={viewabilityConfigCallbackPairs.current}
           refreshing={refreshing}
           onRefresh={onRefresh}
+          onEndReached={() => fetchData(session?.user?.id, feedType, page + 1)} 
+          onEndReachedThreshold={0.5} 
+          ListFooterComponent={isLoadingMore ? <ActivityIndicator size="large" color="#fff" style={{ margin: 20 }} /> : null}
         />
       )}
 
