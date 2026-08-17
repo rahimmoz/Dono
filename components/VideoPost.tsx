@@ -1,4 +1,4 @@
-import { ResizeMode, Video } from 'expo-av';
+import { useVideoPlayer, VideoView } from 'expo-video';
 import { useEffect, useRef, useState } from 'react';
 import {
   Alert,
@@ -54,6 +54,27 @@ const VideoPost = ({ video, onDonate, isActive, currentUserId, onOpenComments }:
   const heartOpacity = useRef(new Animated.Value(0)).current;
   const spinValue = useRef(new Animated.Value(0)).current;
   const lastTap = useRef(0);
+
+  // expo-video: the player is an imperative object, not a set of props.
+  // We create one per VideoPost and drive play/pause/mute from isActive/isPaused below.
+  const player = useVideoPlayer(video.video_url, (p) => {
+    p.loop = true;
+    p.muted = true; // start muted; unmuted only when this post becomes active
+  });
+
+  useEffect(() => {
+    if (isActive && !isPaused) {
+      player.muted = false;
+      player.play();
+    } else if (isActive && isPaused) {
+      // user tapped to pause; keep audio state as-is, just stop playback
+      player.pause();
+    } else {
+      // off-screen: mute and pause so it doesn't play audio/burn battery in the background
+      player.muted = true;
+      player.pause();
+    }
+  }, [isActive, isPaused, player]);
 
   useEffect(() => {
     Animated.loop(Animated.timing(spinValue, { toValue: 1, duration: 3000, useNativeDriver: true })).start();
@@ -153,7 +174,13 @@ const VideoPost = ({ video, onDonate, isActive, currentUserId, onOpenComments }:
   return (
     <View style={styles.videoContainer}>
       <Pressable style={StyleSheet.absoluteFill} onPress={handleTap}>
-        <Video style={StyleSheet.absoluteFill} source={{ uri: video.video_url }} resizeMode={ResizeMode.COVER} isLooping shouldPlay={isActive && !isPaused} isMuted={!isActive} />
+        <VideoView
+          style={StyleSheet.absoluteFill}
+          player={player}
+          contentFit="cover"
+          nativeControls={false}
+          pointerEvents="none"
+        />
         {isPaused && (
            <View style={styles.pauseOverlay} pointerEvents="none">
              <Text style={styles.playIcon}>▶️</Text>

@@ -2,6 +2,7 @@ import { useRouter } from 'expo-router'; // 🚨 NEW IMPORT
 import { useEffect, useState } from 'react';
 import { ActivityIndicator, Alert, Dimensions, FlatList, Image, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import PayoutRequestModal from '../../components/PayoutRequestModal';
 import { supabase } from '../../supabase';
 
 const { width } = Dimensions.get('window');
@@ -75,10 +76,30 @@ export default function ProfileScreen() {
     setLoading(false);
   };
 
-  const handleWithdraw = async () => {
-    if (walletBalance <= 0) return Alert.alert("Whoops!", "Zero coins to withdraw!");
-    const { error } = await supabase.from('users').update({ wallet_balance: 0 }).eq('id', session.user.id);
-    if (!error) { setWalletBalance(0); Alert.alert("Ka-Ching! 💸", "Funds withdrawn."); }
+  const [payoutModalVisible, setPayoutModalVisible] = useState(false);
+
+  const handleOpenPayoutModal = () => {
+    if (walletBalance <= 0) return Alert.alert("Whoops!", "You don't have any coins to withdraw yet!");
+    setPayoutModalVisible(true);
+  };
+
+  const handleRequestPayout = async (amount: number) => {
+    const { error } = await supabase.rpc('request_payout', {
+      requesting_user_id: session.user.id,
+      requested_amount: amount,
+    });
+
+    if (error) {
+      Alert.alert('Error', error.message);
+      return;
+    }
+
+    setWalletBalance((prev) => prev - amount);
+    setPayoutModalVisible(false);
+    Alert.alert(
+      'Request submitted 🎉',
+      `Your request for ${amount} coins is pending review. We'll reach out once it's processed.`
+    );
   };
 
   const confirmDelete = (videoId: string, videoUrl: string) => {
@@ -142,7 +163,7 @@ export default function ProfileScreen() {
           <Text style={styles.editBtnText}>Edit Profile</Text>
         </TouchableOpacity>
         
-        <TouchableOpacity style={styles.withdrawBtn} onPress={handleWithdraw}><Text style={styles.withdrawBtnText}>Withdraw Funds</Text></TouchableOpacity>
+        <TouchableOpacity style={styles.withdrawBtn} onPress={handleOpenPayoutModal}><Text style={styles.withdrawBtnText}>Withdraw Funds</Text></TouchableOpacity>
         
         <TouchableOpacity style={styles.logoutBtn} onPress={handleLogout}>
           <Text style={styles.logoutText}>Log Out</Text>
@@ -171,6 +192,13 @@ export default function ProfileScreen() {
             <View style={styles.deleteHint}><Text style={{color: 'white', fontSize: 10}}>Hold to Delete</Text></View>
           </TouchableOpacity>
         )}
+      />
+
+      <PayoutRequestModal
+        visible={payoutModalVisible}
+        walletBalance={walletBalance}
+        onClose={() => setPayoutModalVisible(false)}
+        onSubmit={handleRequestPayout}
       />
     </View>
   );

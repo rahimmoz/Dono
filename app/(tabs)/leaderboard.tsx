@@ -7,7 +7,7 @@ type Creator = {
   id: string;
   username: string;
   avatar_url: string | null;
-  wallet_balance: number;
+  total_received: number;
 };
 
 export default function LeaderboardScreen() {
@@ -17,11 +17,13 @@ export default function LeaderboardScreen() {
   const [refreshing, setRefreshing] = useState(false);
 
   const fetchLeaderboard = async () => {
-    // Fetch the top 50 users based on their wallet balance
+    // Rank by total_received (lifetime donations earned), not wallet_balance.
+    // wallet_balance also goes up when someone *buys* coins, which would let
+    // a big spender outrank a creator who's actually been tipped a lot.
     const { data, error } = await supabase
       .from('users')
-      .select('id, username, avatar_url, wallet_balance')
-      .order('wallet_balance', { ascending: false })
+      .select('id, username, avatar_url, total_received')
+      .order('total_received', { ascending: false })
       .limit(50);
 
     if (data) {
@@ -85,11 +87,11 @@ export default function LeaderboardScreen() {
 
               <View style={styles.infoContainer}>
                 <Text style={[styles.username, isTopThree && styles.topThreeText]}>@{item.username}</Text>
-                <Text style={styles.walletText}>Net Worth</Text>
+                <Text style={styles.walletText}>Total Received</Text>
               </View>
 
               <View style={styles.scoreContainer}>
-                <Text style={[styles.score, isTopThree && styles.topThreeScore]}>{item.wallet_balance}</Text>
+                <Text style={[styles.score, isTopThree && styles.topThreeScore]}>{item.total_received}</Text>
                 <Text style={styles.coin}>🪙</Text>
               </View>
             </View>

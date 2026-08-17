@@ -51,7 +51,8 @@
         {
           "photosPermission": "Allow Donate-Tok to access your photos so you can share your videos with creators."
         }
-      ]
+      ],
+      "expo-video"
     ],
     "experiments": {
       "typedRoutes": true,

@@ -19,7 +19,7 @@ import {
   View
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import DonateModal from '../../components/DonateModal';
+import DonateModal from '../../components/PayoutRequestModal';
 import { supabase } from '../../supabase';
 
 import VideoPost from '../../components/VideoPost';
@@ -532,9 +532,8 @@ return (
       <DonateModal 
         visible={!!donateData}
         walletBalance={walletBalance}
-        receiverName={donateData?.receiverName || ''}
         onClose={() => setDonateData(null)}
-        onDonate={processDonation}
+        onSubmit={processDonation}
       />
 
       {/* 🚨 NEW: Render the massive floating animation on top of everything! */}

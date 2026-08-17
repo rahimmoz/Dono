@@ -1,12 +1,23 @@
-import { ResizeMode, Video } from 'expo-av';
 import * as ImagePicker from 'expo-image-picker';
 import { useRouter } from 'expo-router';
+import { useVideoPlayer, VideoView } from 'expo-video';
 import React, { useState } from 'react';
 import { ActivityIndicator, Alert, KeyboardAvoidingView, Platform, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { supabase } from '../../supabase';
 
 const CATEGORIES = ['Comedy', 'Gaming', 'Education', 'Tech', 'Music', 'Vlog'];
+
+// Small child component so useVideoPlayer only ever mounts once a real URI exists
+// (the hook needs a stable source; videoUri starts out null before the user picks a file).
+function UploadPreview({ uri }: { uri: string }) {
+  const player = useVideoPlayer(uri, (p) => {
+    p.loop = true;
+    p.muted = true;
+    p.play();
+  });
+  return <VideoView player={player} style={styles.videoPlayer} contentFit="cover" nativeControls={false} />;
+}
 
 export default function UploadStudioScreen() {
   const insets = useSafeAreaInsets();
@@ -96,7 +107,7 @@ export default function UploadStudioScreen() {
         {/* Video Preview / Picker Area */}
         {videoUri ? (
           <View style={styles.previewContainer}>
-            <Video style={styles.videoPlayer} source={{ uri: videoUri }} resizeMode={ResizeMode.COVER} shouldPlay isLooping isMuted />
+            <UploadPreview uri={videoUri} />
             <TouchableOpacity style={styles.changeVideoBtn} onPress={pickAndTrimVideo} disabled={isUploading}>
               <Text style={styles.changeVideoText}>Retrim / Change Video</Text>
             </TouchableOpacity>
