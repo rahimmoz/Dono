@@ -371,6 +371,7 @@ const fetchData = async (userId: string, selectedFeed: 'foryou' | 'following' = 
   } finally {
     setIsLoading(false);
     setIsLoadingMore(false);
+    setRefreshing(false);
   }
 };
 

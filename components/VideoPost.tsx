@@ -54,6 +54,28 @@ const VideoPost = ({ video, onDonate, isActive, currentUserId, onOpenComments }:
   const heartOpacity = useRef(new Animated.Value(0)).current;
   const spinValue = useRef(new Animated.Value(0)).current;
   const lastTap = useRef(0);
+  // 1. Add a new ref to keep track of our timer
+  const tapTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // 2. Replace handleTap with this smart version
+  const handleTap = () => {
+    const now = Date.now();
+    const DOUBLE_PRESS_DELAY = 300; 
+
+    if (now - lastTap.current < DOUBLE_PRESS_DELAY) {
+      // It's a double tap! 
+      // Cancel the pause timer immediately so the video keeps playing.
+      if (tapTimeout.current) clearTimeout(tapTimeout.current);
+      triggerDoubleTapLike();
+    } else {
+      // It's the first tap. 
+      // Start a tiny 300ms timer to see if they tap a second time before pausing.
+      tapTimeout.current = setTimeout(() => {
+        setIsPaused((prev) => !prev);
+      }, DOUBLE_PRESS_DELAY);
+    }
+    lastTap.current = now;
+  };
 
   // expo-video: the player is an imperative object, not a set of props.
   // We create one per VideoPost and drive play/pause/mute from isActive/isPaused below.
@@ -106,18 +128,6 @@ const VideoPost = ({ video, onDonate, isActive, currentUserId, onOpenComments }:
       if (watchTimer) clearTimeout(watchTimer);
     }; 
   }, [isActive, currentUserId, video.category]);
-
-  const handleTap = () => {
-    const now = Date.now();
-    const DOUBLE_PRESS_DELAY = 300; 
-
-    if (now - lastTap.current < DOUBLE_PRESS_DELAY) {
-      triggerDoubleTapLike();
-    } else {
-      setIsPaused(!isPaused);
-    }
-    lastTap.current = now;
-  };
 
   const triggerDoubleTapLike = () => {
     if (!isLiked) handleLike();
@@ -173,14 +183,16 @@ const VideoPost = ({ video, onDonate, isActive, currentUserId, onOpenComments }:
 
   return (
     <View style={styles.videoContainer}>
+      {/* LAYER 1: The Video (At the very bottom) */}
+      <VideoView
+        style={StyleSheet.absoluteFill}
+        player={player}
+        contentFit="cover"
+        nativeControls={false}
+      />
+
+      {/* LAYER 2: The Tap Shield (Sitting on top of the video) */}
       <Pressable style={StyleSheet.absoluteFill} onPress={handleTap}>
-        <VideoView
-          style={StyleSheet.absoluteFill}
-          player={player}
-          contentFit="cover"
-          nativeControls={false}
-          pointerEvents="none"
-        />
         {isPaused && (
            <View style={styles.pauseOverlay} pointerEvents="none">
              <Text style={styles.playIcon}>▶️</Text>
@@ -191,6 +203,7 @@ const VideoPost = ({ video, onDonate, isActive, currentUserId, onOpenComments }:
         </Animated.View>
       </Pressable>
 
+      {/* LAYER 3: The UI Overlay (The buttons and text on the very top) */}
       <View style={styles.uiOverlay} pointerEvents="box-none">
         <View style={styles.bottomLeft}>
           <View style={styles.creatorRow}>
