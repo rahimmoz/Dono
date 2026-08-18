@@ -53,10 +53,13 @@ export default function ExploreScreen() {
             style={styles.trendingCard}
             onPress={() => router.push({ pathname: '/', params: { startId: item.id } })}
           >
-            <Image 
-              source={{ uri: item.video_url ? item.video_url.replace('.mp4', '.jpg') : 'https://via.placeholder.com/150' }} 
-              style={styles.trendingImage} 
-            />
+            {item.thumbnail_url ? (
+              <Image source={{ uri: item.thumbnail_url }} style={styles.trendingImage} />
+            ) : (
+              <View style={[styles.trendingImage, { justifyContent: 'center', alignItems: 'center' }]}>
+                <Text style={{ fontSize: 28 }}>🎬</Text>
+              </View>
+            )}
             <Text style={styles.trendingText} numberOfLines={1}>{item.description}</Text>
           </TouchableOpacity>
         )}

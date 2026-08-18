@@ -1,7 +1,8 @@
 import * as ImagePicker from 'expo-image-picker';
 import { useRouter } from 'expo-router';
 import { useVideoPlayer, VideoView } from 'expo-video';
-import React, { useState } from 'react';
+import * as VideoThumbnails from 'expo-video-thumbnails';
+import { useState } from 'react';
 import { ActivityIndicator, Alert, KeyboardAvoidingView, Platform, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { supabase } from '../../supabase';
@@ -72,11 +73,37 @@ export default function UploadStudioScreen() {
 
       // 3. Get the public URL
       const { data: publicUrlData } = supabase.storage.from('videos').getPublicUrl(fileName);
-      
+
+      // 3b. Grab a real frame as a thumbnail (used by the Explore grid + Trending row).
+      // This requires a `thumbnails` public storage bucket -- create one in Supabase
+      // Storage if it doesn't exist yet. We don't fail the whole upload if this step
+      // fails; the app already falls back to a placeholder icon when thumbnail_url is null.
+      let thumbnailPublicUrl: string | null = null;
+      try {
+        const { uri: thumbUri } = await VideoThumbnails.getThumbnailAsync(videoUri, { time: 500 });
+        const thumbResponse = await fetch(thumbUri);
+        const thumbData = await thumbResponse.arrayBuffer();
+        const thumbFileName = `${session.user.id}-${Date.now()}.jpg`;
+
+        const { error: thumbError } = await supabase.storage
+          .from('thumbnails')
+          .upload(thumbFileName, thumbData, { contentType: 'image/jpeg' });
+
+        if (!thumbError) {
+          const { data: thumbUrlData } = supabase.storage.from('thumbnails').getPublicUrl(thumbFileName);
+          thumbnailPublicUrl = thumbUrlData.publicUrl;
+        } else {
+          console.log('Thumbnail upload failed, continuing without one:', thumbError.message);
+        }
+      } catch (thumbErr) {
+        console.log('Thumbnail generation failed, continuing without one:', thumbErr);
+      }
+
       // 4. Save to the videos table (with our new Category system!)
       const { error: dbError } = await supabase.from('videos').insert({
         creator_id: session.user.id,
         video_url: publicUrlData.publicUrl,
+        thumbnail_url: thumbnailPublicUrl,
         description: description.trim(),
         category: selectedCategory, // 🧠 Feeds the Algorithm!
         likes_count: 0

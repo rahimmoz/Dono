@@ -52,7 +52,11 @@
           "photosPermission": "Allow Donate-Tok to access your photos so you can share your videos with creators."
         }
       ],
-      "expo-video"
+      "expo-video",
+      "expo-font",
+      "expo-image",
+      "expo-status-bar",
+      "expo-web-browser"
     ],
     "experiments": {
       "typedRoutes": true,
