@@ -387,12 +387,21 @@ const fetchData = async (userId: string, selectedFeed: 'foryou' | 'following' = 
   };
 
   const handleOpenDonate: DonateCallback = (videoIdOrAmount, receiverId, receiverName) => {
-    if (typeof videoIdOrAmount === 'number') return;
-    if (!receiverId || !receiverName) return;
-    if (!session?.user?.id) return Alert.alert('Login required', 'Please log in to donate.');
-    if (session.user.id === receiverId) return Alert.alert('Not allowed', "You can't donate to yourself.");
-    setDonateData({ videoId: videoIdOrAmount, receiverId, receiverName });
-  };
+  if (typeof videoIdOrAmount === 'number') return;
+  if (!session?.user?.id) return Alert.alert('Login required', 'Please log in to donate.');
+
+  // 🚨 SMART FIX: Find the video details automatically if the button forgot to pass them
+  const targetVideo = videos.find(v => v.id === videoIdOrAmount);
+  const finalReceiverId = receiverId || targetVideo?.creator_id;
+  const finalReceiverName = receiverName || targetVideo?.creator;
+
+  // Now run the safety checks!
+  if (!finalReceiverId || !finalReceiverName) return Alert.alert('Error', 'Creator details missing.');
+  if (session.user.id === finalReceiverId) return Alert.alert('Not allowed', "You can't donate to yourself.");
+
+  // Open the modal
+  setDonateData({ videoId: videoIdOrAmount, receiverId: finalReceiverId, receiverName: finalReceiverName });
+};
 
   const processDonation = async (amount: number) => {
     if (!session?.user?.id || !donateData || isDonating) return;
@@ -466,8 +475,8 @@ const fetchData = async (userId: string, selectedFeed: 'foryou' | 'following' = 
 
 return (
   <View style={styles.container}>
-    {/* 🚨 Updated Top Nav with Search and Inbox */}
-    <View style={[styles.topNav, { top: insets.top + 10 }]}>
+    {/* 🚨 Top Nav (Perfectly closed so it doesn't squish the app!) */}
+    <View style={[styles.topNav, { top: Math.max(insets.top, 45) }]}>
       {/* Left Side: Empty or Logo */}
       <View style={{ flex: 1 }} />
 
@@ -482,7 +491,7 @@ return (
         </TouchableOpacity>
       </View>
 
-      {/* 🚨 Right Side: Search & Inbox */}
+      {/* Right Side: Search & Inbox */}
       <View style={styles.topRightActions}>
         <TouchableOpacity onPress={() => router.push('/explore')}>
           <Text style={styles.topIcon}>🔍</Text>
@@ -493,60 +502,64 @@ return (
       </View>
     </View>
 
-    <View style={styles.globalWallet}><Text style={styles.balanceText}>{walletBalance} 🪙</Text></View>
-
-      {videos.length === 0 ? (
-        <View style={styles.emptyFeed}>
-          <Text style={styles.emptyFeedText}>
-            {feedType === 'following' ? "You aren't following anyone yet! Go to the 'For You' feed to find creators." : "No videos available."}
-          </Text>
-        </View>
-      ) : (
-        <FlatList
-          data={videos}
-          renderItem={({ item }) => (
-            <VideoPost 
-              video={item} 
-              isActive={activeVideoId === item.id} 
-              currentUserId={session?.user?.id} 
-              onOpenComments={setCommentVideoId}
-              onDonate={handleOpenDonate}
-            />
-          )}
-          keyExtractor={item => item.id}
-          showsVerticalScrollIndicator={false}
-          snapToInterval={height}
-          snapToAlignment="start"
-          decelerationRate="fast"
-          ref={flatListRef}
-          viewabilityConfigCallbackPairs={viewabilityConfigCallbackPairs.current}
-          refreshing={refreshing}
-          onRefresh={onRefresh}
-          onEndReached={() => fetchData(session?.user?.id, feedType, page + 1)} 
-          onEndReachedThreshold={0.5} 
-          ListFooterComponent={isLoadingMore ? <ActivityIndicator size="large" color="#fff" style={{ margin: 20 }} /> : null}
-        />
-      )}
-
-      <CommentModal videoId={commentVideoId} currentUserId={session?.user?.id} onClose={() => setCommentVideoId(null)} />
-      
-      <DonateModal 
-        visible={!!donateData}
-        walletBalance={walletBalance}
-        receiverName={donateData?.receiverName || ''}
-        onClose={() => setDonateData(null)}
-        onDonate={processDonation}
-      />
-
-      {/* 🚨 NEW: Render the massive floating animation on top of everything! */}
-      <DonationAnimation 
-        donation={activeDonationAnim} 
-        onComplete={() => setActiveDonationAnim(null)} 
-      />
-
-      <StatusBar style="light" />
+    {/* 🚨 Wallet is safely OUTSIDE the top nav row */}
+    <View style={[styles.globalWallet, { top: Math.max(insets.top, 45) + 50 }]}>
+      <Text style={styles.balanceText}>{walletBalance} 🪙</Text>
     </View>
-  );
+
+    {/* The actual video feed */}
+    {videos.length === 0 ? (
+      <View style={styles.emptyFeed}>
+        <Text style={styles.emptyFeedText}>
+          {feedType === 'following' ? "You aren't following anyone yet! Go to the 'For You' feed to find creators." : "No videos available."}
+        </Text>
+      </View>
+    ) : (
+      <FlatList
+        data={videos}
+        renderItem={({ item }) => (
+          <VideoPost 
+            video={item} 
+            isActive={activeVideoId === item.id} 
+            currentUserId={session?.user?.id} 
+            onOpenComments={setCommentVideoId}
+            onDonate={handleOpenDonate}
+          />
+        )}
+        keyExtractor={item => item.id}
+        showsVerticalScrollIndicator={false}
+        snapToInterval={height}
+        snapToAlignment="start"
+        decelerationRate="fast"
+        ref={flatListRef}
+        viewabilityConfigCallbackPairs={viewabilityConfigCallbackPairs.current}
+        refreshing={refreshing}
+        onRefresh={onRefresh}
+        onEndReached={() => fetchData(session?.user?.id, feedType, page + 1)} 
+        onEndReachedThreshold={0.5} 
+        ListFooterComponent={isLoadingMore ? <ActivityIndicator size="large" color="#fff" style={{ margin: 20 }} /> : null}
+      />
+    )}
+
+    {/* Popups and Overlays */}
+    <CommentModal videoId={commentVideoId} currentUserId={session?.user?.id} onClose={() => setCommentVideoId(null)} />
+    
+    <DonateModal 
+      visible={!!donateData}
+      walletBalance={walletBalance}
+      receiverName={donateData?.receiverName || ''}
+      onClose={() => setDonateData(null)}
+      onDonate={processDonation}
+    />
+
+    <DonationAnimation 
+      donation={activeDonationAnim} 
+      onComplete={() => setActiveDonationAnim(null)} 
+    />
+
+    <StatusBar style="light" />
+  </View>
+);
 }
 
 // ==========================================
@@ -563,7 +576,7 @@ const styles = StyleSheet.create({
   balanceText: { color: '#00FF00', fontSize: 14, fontWeight: 'bold' },
   emptyFeed: { flex: 1, justifyContent: 'center', alignItems: 'center', paddingHorizontal: 40 },
   emptyFeedText: { color: '#888', textAlign: 'center', fontSize: 16, lineHeight: 24 },
-  uiOverlay: { ...StyleSheet.absoluteFillObject, justifyContent: 'flex-end', paddingBottom: Platform.OS === 'android' ? 120 : 100, paddingHorizontal: 15, flexDirection: 'row', alignItems: 'flex-end' },
+  uiOverlay: { ...StyleSheet.absoluteFill, justifyContent: 'flex-end', paddingBottom: Platform.OS === 'android' ? 120 : 100, paddingHorizontal: 15, flexDirection: 'row', alignItems: 'flex-end' },
   bottomLeft: { flex: 1, paddingRight: 20 },
   creatorRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 5 },
   creatorText: { color: '#fff', fontSize: 18, fontWeight: 'bold', textShadowColor: 'rgba(0,0,0,0.8)', textShadowRadius: 10 },
@@ -576,7 +589,7 @@ const styles = StyleSheet.create({
   actionIcon: { fontSize: 32, textShadowColor: 'rgba(0,0,0,0.8)', textShadowRadius: 10 },
   actionText: { color: '#fff', fontWeight: '600', marginTop: 4, fontSize: 13 },
   donateButton: { backgroundColor: 'rgba(0,0,0,0.4)', padding: 10, borderRadius: 50, borderWidth: 1, borderColor: 'rgba(255,255,255,0.4)' },
-  pauseOverlay: { ...StyleSheet.absoluteFillObject, justifyContent: 'center', alignItems: 'center', backgroundColor: 'rgba(0,0,0,0.2)' },
+  pauseOverlay: { ...StyleSheet.absoluteFill, justifyContent: 'center', alignItems: 'center', backgroundColor: 'rgba(0,0,0,0.2)' },
   playIcon: { fontSize: 80, opacity: 0.8 },
   authContainer: { flex: 1, backgroundColor: '#000', justifyContent: 'center', padding: 20 },
   authTitle: { color: '#fff', fontSize: 32, fontWeight: 'bold', marginBottom: 30, textAlign: 'center' },
@@ -584,7 +597,7 @@ const styles = StyleSheet.create({
   authBtn: { backgroundColor: '#00FF00', padding: 15, borderRadius: 10, alignItems: 'center', marginTop: 10 },
   authBtnText: { color: '#000', fontSize: 18, fontWeight: 'bold' },
   switchText: { color: '#888', textAlign: 'center', marginTop: 20, fontSize: 14 },
-  floatingHeartContainer: { ...StyleSheet.absoluteFillObject, justifyContent: 'center', alignItems: 'center', zIndex: 10 },
+  floatingHeartContainer: { ...StyleSheet.absoluteFill, justifyContent: 'center', alignItems: 'center', zIndex: 10 },
   giantHeart: { fontSize: 120, textShadowColor: 'rgba(0,0,0,0.4)', textShadowRadius: 20 },
   audioRow: { flexDirection: 'row', alignItems: 'center', marginTop: 10 },
   audioIcon: { fontSize: 14, marginRight: 5 },
@@ -609,8 +622,8 @@ const styles = StyleSheet.create({
   postBtnText: { color: '#00FF00', fontWeight: 'bold', fontSize: 16 },
 
   // 🚨 NEW: ANIMATION STYLES
-  neonBorder: { ...StyleSheet.absoluteFillObject, borderWidth: 8, zIndex: 998 },
-  animCenterContainer: { ...StyleSheet.absoluteFillObject, justifyContent: 'center', alignItems: 'center', zIndex: 999 },
+  neonBorder: { ...StyleSheet.absoluteFill, borderWidth: 8, zIndex: 998 },
+  animCenterContainer: { ...StyleSheet.absoluteFill, justifyContent: 'center', alignItems: 'center', zIndex: 999 },
   animBox: { padding: 30, alignItems: 'center', shadowOffset: { width: 0, height: 0 }, shadowOpacity: 1, shadowRadius: 30 },
   animTitle: { fontSize: 36, fontWeight: '900', fontStyle: 'italic', marginBottom: 10, textShadowRadius: 15, textShadowOffset: { width: 0, height: 0 } },
   animSub: { color: '#ccc', fontSize: 18, fontWeight: '600' },

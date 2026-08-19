@@ -1,4 +1,5 @@
 import { useRouter } from 'expo-router'; // 🚨 NEW IMPORT
+import { openBrowserAsync } from 'expo-web-browser';
 import { useEffect, useState } from 'react';
 import { ActivityIndicator, Alert, Dimensions, FlatList, Image, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -61,6 +62,7 @@ export default function ProfileScreen() {
     const { data: userData } = await supabase.from('users').select('*').eq('id', userId).single();
     setProfile(userData);
     setWalletBalance(userData?.wallet_balance || 0);
+    setPayoutsEnabled(!!userData?.stripe_payouts_enabled);
 
     const { data: videoData } = await supabase.from('videos').select('*').eq('creator_id', userId).order('created_at', { ascending: false });
     if (videoData) {
@@ -77,10 +79,26 @@ export default function ProfileScreen() {
   };
 
   const [payoutModalVisible, setPayoutModalVisible] = useState(false);
+  const [payoutsEnabled, setPayoutsEnabled] = useState(false);
+  const [isConnectingBank, setIsConnectingBank] = useState(false);
 
   const handleOpenPayoutModal = () => {
+    if (!payoutsEnabled) return Alert.alert('Connect a bank account first', 'You need to connect a payout account before requesting a withdrawal.');
     if (walletBalance <= 0) return Alert.alert("Whoops!", "You don't have any coins to withdraw yet!");
     setPayoutModalVisible(true);
+  };
+
+  const handleConnectBankAccount = async () => {
+    setIsConnectingBank(true);
+    try {
+      const { data, error } = await supabase.functions.invoke('stripe-connect-onboarding');
+      if (error) throw error;
+      if (data?.url) await openBrowserAsync(data.url);
+    } catch (err: any) {
+      Alert.alert('Error', err.message || 'Could not start onboarding.');
+    } finally {
+      setIsConnectingBank(false);
+    }
   };
 
   const handleRequestPayout = async (amount: number) => {
@@ -163,6 +181,12 @@ export default function ProfileScreen() {
           <Text style={styles.editBtnText}>Edit Profile</Text>
         </TouchableOpacity>
         
+        {!payoutsEnabled && (
+          <TouchableOpacity style={styles.connectBtn} onPress={handleConnectBankAccount} disabled={isConnectingBank}>
+            {isConnectingBank ? <ActivityIndicator color="#000" size="small" /> : <Text style={styles.connectBtnText}>🏦 Connect Bank Account</Text>}
+          </TouchableOpacity>
+        )}
+
         <TouchableOpacity style={styles.withdrawBtn} onPress={handleOpenPayoutModal}><Text style={styles.withdrawBtnText}>Withdraw Funds</Text></TouchableOpacity>
         
         <TouchableOpacity style={styles.logoutBtn} onPress={handleLogout}>
@@ -218,6 +242,8 @@ const styles = StyleSheet.create({
   statDivider: { width: 1, height: 25, backgroundColor: '#333' },
   walletBadge: { backgroundColor: '#111', paddingHorizontal: 15, paddingVertical: 6, borderRadius: 12, marginBottom: 10, borderWidth: 1, borderColor: '#333' },
   walletText: { color: '#fff', fontSize: 14, fontWeight: '600' },
+  connectBtn: { backgroundColor: '#635BFF', paddingHorizontal: 24, paddingVertical: 10, borderRadius: 25, marginBottom: 10 },
+  connectBtnText: { color: '#fff', fontSize: 14, fontWeight: 'bold' },
   withdrawBtn: { backgroundColor: '#00FF00', paddingHorizontal: 30, paddingVertical: 10, borderRadius: 25 },
   withdrawBtnText: { color: '#000', fontSize: 15, fontWeight: 'bold' },
   logoutBtn: { marginTop: 15, padding: 10 },
