@@ -236,6 +236,14 @@ const DonationAnimation = ({ donation, onComplete }: { donation: { amount: numbe
 // ==========================================
 export default function App() {
   const insets = useSafeAreaInsets(); 
+
+  // VideoPost items were sized to the full window height, but they render
+  // inside the (tabs) screen, which has a bottom tab bar eating into the
+  // visible area. Rather than compute the tab bar's exact height (fragile --
+  // depends on OS, edge-to-edge display, status bar handling), we measure
+  // the actual space the container gets and use that directly.
+  const [containerHeight, setContainerHeight] = useState(height);
+  const ITEM_HEIGHT = containerHeight;
   
   const [session, setSession] = useState<any>(null);
   const [walletBalance, setWalletBalance] = useState(0);
@@ -347,7 +355,7 @@ const fetchData = async (userId: string, selectedFeed: 'foryou' | 'following' = 
         // Normalize Supabase relational response to our VideoItem type
         const mapped = rawVideosData.map((v: any) => ({
           id: v.id,
-          creator: v.users?.[0]?.username ?? '',
+          creator: (Array.isArray(v.users) ? v.users[0]?.username : v.users?.username) ?? '',
           creator_id: v.creator_id,
           video_url: v.video_url,
           description: v.description,
@@ -387,21 +395,12 @@ const fetchData = async (userId: string, selectedFeed: 'foryou' | 'following' = 
   };
 
   const handleOpenDonate: DonateCallback = (videoIdOrAmount, receiverId, receiverName) => {
-  if (typeof videoIdOrAmount === 'number') return;
-  if (!session?.user?.id) return Alert.alert('Login required', 'Please log in to donate.');
-
-  // 🚨 SMART FIX: Find the video details automatically if the button forgot to pass them
-  const targetVideo = videos.find(v => v.id === videoIdOrAmount);
-  const finalReceiverId = receiverId || targetVideo?.creator_id;
-  const finalReceiverName = receiverName || targetVideo?.creator;
-
-  // Now run the safety checks!
-  if (!finalReceiverId || !finalReceiverName) return Alert.alert('Error', 'Creator details missing.');
-  if (session.user.id === finalReceiverId) return Alert.alert('Not allowed', "You can't donate to yourself.");
-
-  // Open the modal
-  setDonateData({ videoId: videoIdOrAmount, receiverId: finalReceiverId, receiverName: finalReceiverName });
-};
+    if (typeof videoIdOrAmount === 'number') return;
+    if (!receiverId || !receiverName) return;
+    if (!session?.user?.id) return Alert.alert('Login required', 'Please log in to donate.');
+    if (session.user.id === receiverId) return Alert.alert('Not allowed', "You can't donate to yourself.");
+    setDonateData({ videoId: videoIdOrAmount, receiverId, receiverName });
+  };
 
   const processDonation = async (amount: number) => {
     if (!session?.user?.id || !donateData || isDonating) return;
@@ -474,9 +473,12 @@ const fetchData = async (userId: string, selectedFeed: 'foryou' | 'following' = 
   if (!session) return <AuthScreen />;
 
 return (
-  <View style={styles.container}>
-    {/* 🚨 Top Nav (Perfectly closed so it doesn't squish the app!) */}
-    <View style={[styles.topNav, { top: Math.max(insets.top, 45) }]}>
+  <View
+    style={styles.container}
+    onLayout={(e) => setContainerHeight(e.nativeEvent.layout.height)}
+  >
+    {/* 🚨 Updated Top Nav with Search and Inbox */}
+    <View style={[styles.topNav, { top: insets.top + 10 }]}>
       {/* Left Side: Empty or Logo */}
       <View style={{ flex: 1 }} />
 
@@ -491,7 +493,7 @@ return (
         </TouchableOpacity>
       </View>
 
-      {/* Right Side: Search & Inbox */}
+      {/* 🚨 Right Side: Search & Inbox */}
       <View style={styles.topRightActions}>
         <TouchableOpacity onPress={() => router.push('/explore')}>
           <Text style={styles.topIcon}>🔍</Text>
@@ -502,64 +504,61 @@ return (
       </View>
     </View>
 
-    {/* 🚨 Wallet is safely OUTSIDE the top nav row */}
-    <View style={[styles.globalWallet, { top: Math.max(insets.top, 45) + 50 }]}>
-      <Text style={styles.balanceText}>{walletBalance} 🪙</Text>
-    </View>
+    <View style={styles.globalWallet}><Text style={styles.balanceText}>{walletBalance} 🪙</Text></View>
 
-    {/* The actual video feed */}
-    {videos.length === 0 ? (
-      <View style={styles.emptyFeed}>
-        <Text style={styles.emptyFeedText}>
-          {feedType === 'following' ? "You aren't following anyone yet! Go to the 'For You' feed to find creators." : "No videos available."}
-        </Text>
-      </View>
-    ) : (
-      <FlatList
-        data={videos}
-        renderItem={({ item }) => (
-          <VideoPost 
-            video={item} 
-            isActive={activeVideoId === item.id} 
-            currentUserId={session?.user?.id} 
-            onOpenComments={setCommentVideoId}
-            onDonate={handleOpenDonate}
-          />
-        )}
-        keyExtractor={item => item.id}
-        showsVerticalScrollIndicator={false}
-        snapToInterval={height}
-        snapToAlignment="start"
-        decelerationRate="fast"
-        ref={flatListRef}
-        viewabilityConfigCallbackPairs={viewabilityConfigCallbackPairs.current}
-        refreshing={refreshing}
-        onRefresh={onRefresh}
-        onEndReached={() => fetchData(session?.user?.id, feedType, page + 1)} 
-        onEndReachedThreshold={0.5} 
-        ListFooterComponent={isLoadingMore ? <ActivityIndicator size="large" color="#fff" style={{ margin: 20 }} /> : null}
+      {videos.length === 0 ? (
+        <View style={styles.emptyFeed}>
+          <Text style={styles.emptyFeedText}>
+            {feedType === 'following' ? "You aren't following anyone yet! Go to the 'For You' feed to find creators." : "No videos available."}
+          </Text>
+        </View>
+      ) : (
+        <FlatList
+          data={videos}
+          renderItem={({ item }) => (
+            <VideoPost 
+              video={item} 
+              isActive={activeVideoId === item.id} 
+              currentUserId={session?.user?.id} 
+              onOpenComments={setCommentVideoId}
+              onDonate={handleOpenDonate}
+              itemHeight={ITEM_HEIGHT}
+            />
+          )}
+          keyExtractor={item => item.id}
+          showsVerticalScrollIndicator={false}
+          snapToInterval={ITEM_HEIGHT}
+          snapToAlignment="start"
+          decelerationRate="fast"
+          ref={flatListRef}
+          viewabilityConfigCallbackPairs={viewabilityConfigCallbackPairs.current}
+          refreshing={refreshing}
+          onRefresh={onRefresh}
+          onEndReached={() => fetchData(session?.user?.id, feedType, page + 1)} 
+          onEndReachedThreshold={0.5} 
+          ListFooterComponent={isLoadingMore ? <ActivityIndicator size="large" color="#fff" style={{ margin: 20 }} /> : null}
+        />
+      )}
+
+      <CommentModal videoId={commentVideoId} currentUserId={session?.user?.id} onClose={() => setCommentVideoId(null)} />
+      
+      <DonateModal 
+        visible={!!donateData}
+        walletBalance={walletBalance}
+        receiverName={donateData?.receiverName || ''}
+        onClose={() => setDonateData(null)}
+        onDonate={processDonation}
       />
-    )}
 
-    {/* Popups and Overlays */}
-    <CommentModal videoId={commentVideoId} currentUserId={session?.user?.id} onClose={() => setCommentVideoId(null)} />
-    
-    <DonateModal 
-      visible={!!donateData}
-      walletBalance={walletBalance}
-      receiverName={donateData?.receiverName || ''}
-      onClose={() => setDonateData(null)}
-      onDonate={processDonation}
-    />
+      {/* 🚨 NEW: Render the massive floating animation on top of everything! */}
+      <DonationAnimation 
+        donation={activeDonationAnim} 
+        onComplete={() => setActiveDonationAnim(null)} 
+      />
 
-    <DonationAnimation 
-      donation={activeDonationAnim} 
-      onComplete={() => setActiveDonationAnim(null)} 
-    />
-
-    <StatusBar style="light" />
-  </View>
-);
+      <StatusBar style="light" />
+    </View>
+  );
 }
 
 // ==========================================

@@ -4,7 +4,6 @@ import {
   Alert,
   Animated,
   Dimensions,
-  Platform,
   Pressable,
   StyleSheet,
   Text,
@@ -38,12 +37,13 @@ type VideoPostProps = {
   isActive: boolean; 
   currentUserId: string | null; 
   onOpenComments: (videoId: string) => void; 
+  itemHeight: number;
 };
 
 // ==========================================
 // VIDEO POST COMPONENT
 // ==========================================
-const VideoPost = ({ video, onDonate, isActive, currentUserId, onOpenComments }: VideoPostProps) => {
+const VideoPost = ({ video, onDonate, isActive, currentUserId, onOpenComments, itemHeight }: VideoPostProps) => {
 
   const [isPaused, setIsPaused] = useState(false);
   const [isLiked, setIsLiked] = useState(false);
@@ -182,12 +182,12 @@ const VideoPost = ({ video, onDonate, isActive, currentUserId, onOpenComments }:
   };
 
   return (
-    <View style={styles.videoContainer}>
+    <View style={[styles.videoContainer, { height: itemHeight }]}>
       {/* LAYER 1: The Video (At the very bottom) */}
       <VideoView
         style={StyleSheet.absoluteFill}
         player={player}
-        contentFit="cover"
+        contentFit="contain"
         nativeControls={false}
       />
 
@@ -240,7 +240,7 @@ export default VideoPost;
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#000' },
-  videoContainer: { height: height, width: '100%', justifyContent: 'center' },
+  videoContainer: { width: '100%', justifyContent: 'center' },
   topNav: { position: 'absolute', zIndex: 100, width: '100%', flexDirection: 'row', justifyContent: 'center', alignItems: 'center' },
   navText: { color: 'rgba(255,255,255,0.6)', fontSize: 18, fontWeight: 'bold' },
   navTextActive: { color: '#fff', textShadowColor: 'rgba(0,0,0,0.8)', textShadowRadius: 10 },
@@ -249,7 +249,7 @@ const styles = StyleSheet.create({
   balanceText: { color: '#00FF00', fontSize: 14, fontWeight: 'bold' },
   emptyFeed: { flex: 1, justifyContent: 'center', alignItems: 'center', paddingHorizontal: 40 },
   emptyFeedText: { color: '#888', textAlign: 'center', fontSize: 16, lineHeight: 24 },
-  uiOverlay: { ...StyleSheet.absoluteFillObject, justifyContent: 'flex-end', paddingBottom: Platform.OS === 'android' ? 120 : 100, paddingHorizontal: 15, flexDirection: 'row', alignItems: 'flex-end' },
+  uiOverlay: { ...StyleSheet.absoluteFill, justifyContent: 'flex-end', paddingBottom: 20, paddingHorizontal: 15, flexDirection: 'row', alignItems: 'flex-end' },
   bottomLeft: { flex: 1, paddingRight: 20 },
   creatorRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 5 },
   creatorText: { color: '#fff', fontSize: 18, fontWeight: 'bold', textShadowColor: 'rgba(0,0,0,0.8)', textShadowRadius: 10 },
@@ -262,7 +262,7 @@ const styles = StyleSheet.create({
   actionIcon: { fontSize: 32, textShadowColor: 'rgba(0,0,0,0.8)', textShadowRadius: 10 },
   actionText: { color: '#fff', fontWeight: '600', marginTop: 4, fontSize: 13 },
   donateButton: { backgroundColor: 'rgba(0,0,0,0.4)', padding: 10, borderRadius: 50, borderWidth: 1, borderColor: 'rgba(255,255,255,0.4)' },
-  pauseOverlay: { ...StyleSheet.absoluteFillObject, justifyContent: 'center', alignItems: 'center', backgroundColor: 'rgba(0,0,0,0.2)' },
+  pauseOverlay: { ...StyleSheet.absoluteFill, justifyContent: 'center', alignItems: 'center', backgroundColor: 'rgba(0,0,0,0.2)' },
   playIcon: { fontSize: 80, opacity: 0.8 },
   authContainer: { flex: 1, backgroundColor: '#000', justifyContent: 'center', padding: 20 },
   authTitle: { color: '#fff', fontSize: 32, fontWeight: 'bold', marginBottom: 30, textAlign: 'center' },
@@ -270,7 +270,7 @@ const styles = StyleSheet.create({
   authBtn: { backgroundColor: '#00FF00', padding: 15, borderRadius: 10, alignItems: 'center', marginTop: 10 },
   authBtnText: { color: '#000', fontSize: 18, fontWeight: 'bold' },
   switchText: { color: '#888', textAlign: 'center', marginTop: 20, fontSize: 14 },
-  floatingHeartContainer: { ...StyleSheet.absoluteFillObject, justifyContent: 'center', alignItems: 'center', zIndex: 10 },
+  floatingHeartContainer: { ...StyleSheet.absoluteFill, justifyContent: 'center', alignItems: 'center', zIndex: 10 },
   giantHeart: { fontSize: 120, textShadowColor: 'rgba(0,0,0,0.4)', textShadowRadius: 20 },
   audioRow: { flexDirection: 'row', alignItems: 'center', marginTop: 10 },
   audioIcon: { fontSize: 14, marginRight: 5 },
@@ -295,8 +295,8 @@ const styles = StyleSheet.create({
   postBtnText: { color: '#00FF00', fontWeight: 'bold', fontSize: 16 },
 
   // 🚨 NEW: ANIMATION STYLES
-  neonBorder: { ...StyleSheet.absoluteFillObject, borderWidth: 8, zIndex: 998 },
-  animCenterContainer: { ...StyleSheet.absoluteFillObject, justifyContent: 'center', alignItems: 'center', zIndex: 999 },
+  neonBorder: { ...StyleSheet.absoluteFill, borderWidth: 8, zIndex: 998 },
+  animCenterContainer: { ...StyleSheet.absoluteFill, justifyContent: 'center', alignItems: 'center', zIndex: 999 },
   animBox: { padding: 30, alignItems: 'center', shadowOffset: { width: 0, height: 0 }, shadowOpacity: 1, shadowRadius: 30 },
   animTitle: { fontSize: 36, fontWeight: '900', fontStyle: 'italic', marginBottom: 10, textShadowRadius: 15, textShadowOffset: { width: 0, height: 0 } },
   animSub: { color: '#ccc', fontSize: 18, fontWeight: '600' },
