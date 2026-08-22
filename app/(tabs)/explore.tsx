@@ -1,5 +1,5 @@
 import { useRouter } from 'expo-router';
-import React, { useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Dimensions, FlatList, Image, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { supabase } from '../../supabase';
 const { width } = Dimensions.get('window');
@@ -19,7 +19,8 @@ export default function ExploreScreen() {
     const { data } = await supabase
       .from('videos')
       .select('id, category, description, video_url, thumbnail_url') // 🚨 ADDED video_url AND thumbnail_url HERE!
-      .order('created_at', { ascending: false });
+      .order('created_at', { ascending: false })
+      .limit(60);
     setVideos(data || []);
   };
 

@@ -1,5 +1,5 @@
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import React, { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -23,7 +23,12 @@ export default function ChatScreen() {
   const [messages, setMessages] = useState<any[]>([]);
   const [newMessage, setNewMessage] = useState('');
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
+  const [myUsername, setMyUsername] = useState<string | null>(null);
   const flatListRef = useRef<FlatList>(null);
+
+  const markAsRead = async (myId: string) => {
+    await supabase.rpc('mark_conversation_read', { p_user_id: myId, p_partner_id: id });
+  };
 
   // 1. Initial Setup: Auth & Fetching
   useEffect(() => {
@@ -35,8 +40,12 @@ export default function ChatScreen() {
         const myId = session.user.id;
         setCurrentUserId(myId);
         fetchMessages(myId);
+        markAsRead(myId);
 
-        // 2. Real-time Subscription
+        const { data: myProfile } = await supabase.from('users').select('username').eq('id', myId).single();
+        if (myProfile) setMyUsername(myProfile.username);
+
+        // 2. Real-time Subscription -- both new messages AND read-receipt updates
         channel = supabase
           .channel(`chat:${id}`)
           .on(
@@ -56,11 +65,25 @@ export default function ChatScreen() {
                   return [msg, ...prev];
                 });
 
+                // If they just messaged us while we're sitting in this chat,
+                // immediately mark it read rather than waiting for a re-open.
+                if (msg.sender_id === id && msg.receiver_id === myId) {
+                  markAsRead(myId);
+                }
+
                 // Auto-scroll to bottom (offset 0 because list is inverted)
                 setTimeout(() => {
                   flatListRef.current?.scrollToOffset({ offset: 0, animated: true });
                 }, 100);
               }
+            }
+          )
+          .on(
+            'postgres_changes',
+            { event: 'UPDATE', schema: 'public', table: 'messages' },
+            (payload) => {
+              const msg = payload.new;
+              setMessages((prev) => prev.map((m) => (m.id === msg.id ? { ...m, read_at: msg.read_at } : m)));
             }
           )
           .subscribe();
@@ -102,9 +125,11 @@ const fetchMessages = async (userId?: string, isLoadMore = false) => {
 
   const sendMessage = async () => {
     if (!newMessage.trim() || !currentUserId) return;
+    const content = newMessage.trim();
+    setNewMessage('');
 
     const { error } = await supabase.from('messages').insert({
-      content: newMessage.trim(),
+      content,
       sender_id: currentUserId,
       receiver_id: id
     });
@@ -112,10 +137,22 @@ const fetchMessages = async (userId?: string, isLoadMore = false) => {
     if (error) {
       console.error("Send Error:", error.message);
       Alert.alert("Error", "Message failed to send. Check your connection.");
-    } else {
-      setNewMessage('');
+      return;
+    }
+
+    // Fire the push notification -- best-effort, never blocks sending.
+    try {
+      await supabase.functions.invoke('send-message-notification', {
+        body: { receiverId: id, senderName: myUsername, messageContent: content },
+      });
+    } catch (err) {
+      console.log('Push notification skipped:', err);
     }
   };
+
+  // The most recent message index that I sent, so we only show a
+  // read-receipt under the LAST bubble, not every single one.
+  const lastMineIndex = messages.findIndex((m) => m.sender_id === currentUserId);
 
   return (
     <KeyboardAvoidingView 
@@ -147,7 +184,7 @@ const fetchMessages = async (userId?: string, isLoadMore = false) => {
           onEndReached={() => fetchMessages(undefined, true)} // Load more when user scrolls up
           onEndReachedThreshold={0.5}
           ListFooterComponent={loadingMore ? <ActivityIndicator color="#00FF00" /> : null}
-          renderItem={({ item }) => {
+          renderItem={({ item, index }) => {
             const isMine = item.sender_id === currentUserId;
             return (
               <View style={[styles.messageBubble, isMine ? styles.myMessage : styles.theirMessage]}>
@@ -157,6 +194,9 @@ const fetchMessages = async (userId?: string, isLoadMore = false) => {
                 <Text style={[styles.timestamp, { color: isMine ? 'rgba(0,0,0,0.5)' : 'rgba(255,255,255,0.5)' }]}>
                   {new Date(item.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                 </Text>
+                {isMine && index === lastMineIndex && (
+                  <Text style={styles.readReceipt}>{item.read_at ? 'Read' : 'Delivered'}</Text>
+                )}
               </View>
             );
           }}
@@ -212,6 +252,7 @@ const styles = StyleSheet.create({
   theirMessage: { alignSelf: 'flex-start', backgroundColor: '#333' },
   messageText: { fontSize: 15 },
   timestamp: { fontSize: 10, alignSelf: 'flex-end', marginTop: 4 },
+  readReceipt: { fontSize: 10, alignSelf: 'flex-end', marginTop: 2, color: 'rgba(0,0,0,0.5)' },
 
   emptyContainer: { flex: 1, justifyContent: 'center', alignItems: 'center' },
   emptyText: { color: '#555' },

@@ -1,3 +1,4 @@
+import * as Device from 'expo-device';
 import { router, useLocalSearchParams } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { useEffect, useRef, useState } from 'react';
@@ -455,15 +456,53 @@ const fetchData = async (userId: string, selectedFeed: 'foryou' | 'following' = 
     }
   }, [startId, videos]);
 
+  // Registers this device for push notifications and saves the token to the
+  // user's row. Only works in a development build / production build --
+  // Expo Go dropped remote push support in SDK 53, so this will just no-op
+  // there rather than error.
+  const registerForPushNotifications = async (userId: string) => {
+    try {
+      if (!Device.isDevice) return; // simulators/emulators can't get real tokens
+
+      // Dynamic import on purpose: this module throws immediately just from
+      // being loaded on Android in Expo Go (SDK 53+ removed remote push
+      // support there). A static top-level import would crash before this
+      // try/catch even exists; importing it here means the throw happens
+      // *inside* the try block, where we can actually catch it.
+      const Notifications = await import('expo-notifications');
+
+      if (Platform.OS === 'android') {
+        await Notifications.setNotificationChannelAsync('default', {
+          name: 'default',
+          importance: Notifications.AndroidImportance.DEFAULT,
+        });
+      }
+
+      const { status: existingStatus } = await Notifications.getPermissionsAsync();
+      let finalStatus = existingStatus;
+      if (existingStatus !== 'granted') {
+        const { status } = await Notifications.requestPermissionsAsync();
+        finalStatus = status;
+      }
+      if (finalStatus !== 'granted') return;
+
+      const tokenResponse = await Notifications.getExpoPushTokenAsync();
+      await supabase.from('users').update({ push_token: tokenResponse.data }).eq('id', userId);
+    } catch (err) {
+      // Expected to fail in Expo Go -- don't let it break login.
+      console.log('Push registration skipped:', err);
+    }
+  };
+
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
       setSession(session);
-      if (session) fetchData(session.user.id, feedType);
+      if (session) { fetchData(session.user.id, feedType); registerForPushNotifications(session.user.id); }
       else setIsLoading(false);
     });
     const { data: authListener } = supabase.auth.onAuthStateChange((_event, session) => {
       setSession(session);
-      if (session) fetchData(session.user.id, feedType);
+      if (session) { fetchData(session.user.id, feedType); registerForPushNotifications(session.user.id); }
       else { setVideos([]); setWalletBalance(0); setIsLoading(false); }
     });
     return () => authListener.subscription.unsubscribe();

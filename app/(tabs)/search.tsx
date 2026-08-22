@@ -33,28 +33,34 @@ export default function SearchScreen() {
     }
   };
 
-  // 2. The Search Function
-  const handleSearch = async (text: string) => {
+  // 2. Update the input instantly, but debounce the actual network search
+  //    so we're not firing a request on every single keystroke.
+  const handleSearch = (text: string) => {
     setSearchQuery(text);
-    
-    if (text.trim().length < 2) {
+  };
+
+  useEffect(() => {
+    if (searchQuery.trim().length < 2) {
       setResults([]);
       return;
     }
 
     setIsSearching(true);
+    const timeoutId = setTimeout(async () => {
+      // Use .ilike() for case-insensitive "fuzzy" searching
+      const { data } = await supabase
+        .from('users')
+        .select('id, username, bio')
+        .ilike('username', `%${searchQuery}%`)
+        .neq('id', currentUserId) // Don't show ourselves in the results!
+        .limit(20);
 
-    // Use .ilike() for case-insensitive "fuzzy" searching
-    const { data, error } = await supabase
-      .from('users')
-      .select('id, username, bio')
-      .ilike('username', `%${text}%`)
-      .neq('id', currentUserId) // Don't show ourselves in the results!
-      .limit(20);
+      if (data) setResults(data);
+      setIsSearching(false);
+    }, 400);
 
-    if (data) setResults(data);
-    setIsSearching(false);
-  };
+    return () => clearTimeout(timeoutId);
+  }, [searchQuery, currentUserId]);
 
   // 3. Inline Follow/Unfollow Logic
   const toggleFollow = async (targetUserId: string) => {
