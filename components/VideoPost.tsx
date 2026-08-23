@@ -11,6 +11,7 @@ import {
   View
 } from 'react-native';
 import { supabase } from '../supabase';
+import ReportModal from './ReportModal';
 
 
 const { height, width } = Dimensions.get('window');
@@ -38,12 +39,13 @@ type VideoPostProps = {
   currentUserId: string | null; 
   onOpenComments: (videoId: string) => void; 
   itemHeight: number;
+  onBlock: (blockedUserId: string) => void;
 };
 
 // ==========================================
 // VIDEO POST COMPONENT
 // ==========================================
-const VideoPost = ({ video, onDonate, isActive, currentUserId, onOpenComments, itemHeight }: VideoPostProps) => {
+const VideoPost = ({ video, onDonate, isActive, currentUserId, onOpenComments, itemHeight, onBlock }: VideoPostProps) => {
 
   const [isPaused, setIsPaused] = useState(false);
   const [isLiked, setIsLiked] = useState(false);
@@ -181,6 +183,48 @@ const VideoPost = ({ video, onDonate, isActive, currentUserId, onOpenComments, i
     }
   };
 
+  const [reportModalVisible, setReportModalVisible] = useState(false);
+
+  const handleOpenOptions = () => {
+    Alert.alert(video.creator, undefined, [
+      { text: 'Report Video', onPress: () => setReportModalVisible(true) },
+      { text: `Block @${video.creator}`, style: 'destructive', onPress: handleBlockCreator },
+      { text: 'Cancel', style: 'cancel' },
+    ]);
+  };
+
+  const submitVideoReport = async (reason: string) => {
+    if (!currentUserId) return;
+    const { error } = await supabase.from('reports').insert({
+      reporter_id: currentUserId,
+      reported_video_id: video.id,
+      reported_user_id: video.creator_id,
+      reason,
+    });
+    if (error) Alert.alert('Error', error.message);
+    else Alert.alert('Reported', 'Thanks for letting us know -- our team will review this.');
+  };
+
+  const handleBlockCreator = () => {
+    Alert.alert(
+      `Block @${video.creator}?`,
+      "You won't see their content anymore, and neither of you will be able to message each other.",
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Block',
+          style: 'destructive',
+          onPress: async () => {
+            if (!currentUserId) return;
+            const { error } = await supabase.from('blocks').insert({ blocker_id: currentUserId, blocked_id: video.creator_id });
+            if (error) Alert.alert('Error', error.message);
+            else onBlock(video.creator_id);
+          },
+        },
+      ]
+    );
+  };
+
   return (
     <View style={[styles.videoContainer, { height: itemHeight }]}>
       {/* LAYER 1: The Video (At the very bottom) */}
@@ -228,9 +272,21 @@ const VideoPost = ({ video, onDonate, isActive, currentUserId, onOpenComments, i
             <Text style={styles.actionIcon}>🪙</Text>
             <Text style={styles.actionText}>Donate</Text>
           </TouchableOpacity>
+          {currentUserId && currentUserId !== video.creator_id && (
+            <TouchableOpacity style={styles.actionButton} onPress={handleOpenOptions}>
+              <Text style={[styles.actionIcon, { color: '#fff' }]}>⋯</Text>
+            </TouchableOpacity>
+          )}
           <Animated.View style={[styles.recordContainer, { transform: [{ rotate: spin }] }]}><Text style={styles.recordIcon}>💿</Text></Animated.View>
         </View>
       </View>
+
+      <ReportModal
+        visible={reportModalVisible}
+        onClose={() => setReportModalVisible(false)}
+        targetLabel="this video"
+        onSubmit={submitVideoReport}
+      />
 
     </View>
   );

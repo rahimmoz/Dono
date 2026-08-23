@@ -13,6 +13,7 @@ import {
   View
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import ReportModal from '../../components/ReportModal';
 import { supabase } from '../../supabase';
 
 export default function ChatScreen() {
@@ -128,15 +129,17 @@ const fetchMessages = async (userId?: string, isLoadMore = false) => {
     const content = newMessage.trim();
     setNewMessage('');
 
-    const { error } = await supabase.from('messages').insert({
-      content,
-      sender_id: currentUserId,
-      receiver_id: id
+    // Goes through send_message rather than a raw insert so a block between
+    // either of you is actually enforced server-side, not just hidden in the UI.
+    const { error } = await supabase.rpc('send_message', {
+      p_sender_id: currentUserId,
+      p_receiver_id: id,
+      p_content: content,
     });
 
     if (error) {
       console.error("Send Error:", error.message);
-      Alert.alert("Error", "Message failed to send. Check your connection.");
+      Alert.alert("Couldn't send", error.message.includes('message this user') ? error.message : "Message failed to send. Check your connection.");
       return;
     }
 
@@ -154,6 +157,47 @@ const fetchMessages = async (userId?: string, isLoadMore = false) => {
   // read-receipt under the LAST bubble, not every single one.
   const lastMineIndex = messages.findIndex((m) => m.sender_id === currentUserId);
 
+  const [reportModalVisible, setReportModalVisible] = useState(false);
+
+  const handleOpenOptions = () => {
+    Alert.alert(`@${name}`, undefined, [
+      { text: 'Report User', onPress: () => setReportModalVisible(true) },
+      { text: `Block @${name}`, style: 'destructive', onPress: handleBlockUser },
+      { text: 'Cancel', style: 'cancel' },
+    ]);
+  };
+
+  const submitUserReport = async (reason: string) => {
+    if (!currentUserId) return;
+    const { error } = await supabase.from('reports').insert({
+      reporter_id: currentUserId,
+      reported_user_id: id,
+      reason,
+    });
+    if (error) Alert.alert('Error', error.message);
+    else Alert.alert('Reported', 'Thanks for letting us know -- our team will review this.');
+  };
+
+  const handleBlockUser = () => {
+    Alert.alert(
+      `Block @${name}?`,
+      "You won't see their content anymore, and neither of you will be able to message each other.",
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Block',
+          style: 'destructive',
+          onPress: async () => {
+            if (!currentUserId) return;
+            const { error } = await supabase.from('blocks').insert({ blocker_id: currentUserId, blocked_id: id });
+            if (error) Alert.alert('Error', error.message);
+            else router.back();
+          },
+        },
+      ]
+    );
+  };
+
   return (
     <KeyboardAvoidingView 
       behavior={Platform.OS === 'ios' ? 'padding' : 'height'} 
@@ -166,8 +210,17 @@ const fetchMessages = async (userId?: string, isLoadMore = false) => {
           <Text style={styles.backBtn}>←</Text>
         </TouchableOpacity>
         <Text style={styles.headerTitle}>@{name}</Text>
-        <View style={{ width: 40 }} />
+        <TouchableOpacity onPress={handleOpenOptions} style={styles.optionsBtnWrapper}>
+          <Text style={styles.backBtn}>⋯</Text>
+        </TouchableOpacity>
       </View>
+
+      <ReportModal
+        visible={reportModalVisible}
+        onClose={() => setReportModalVisible(false)}
+        targetLabel={`@${name}`}
+        onSubmit={submitUserReport}
+      />
 
       {/* Message List */}
       {messages.length === 0 ? (
@@ -239,6 +292,7 @@ const styles = StyleSheet.create({
   },
   headerTitle: { color: '#fff', fontWeight: 'bold', fontSize: 16 },
   backBtnWrapper: { width: 40 },
+  optionsBtnWrapper: { width: 40, alignItems: 'flex-end' },
   backBtn: { color: '#fff', fontSize: 24 },
   
   messageBubble: { 

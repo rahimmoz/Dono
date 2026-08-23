@@ -294,11 +294,19 @@ const fetchData = async (userId: string, selectedFeed: 'foryou' | 'following' = 
       setWalletBalance(walletData?.wallet_balance ?? 0);
     }
 
+    // 3b. Never show videos from anyone blocked (either direction).
+    const { data: blockedData } = await supabase.rpc('get_blocked_user_ids', { p_user_id: userId });
+    const blockedIds: string[] = (blockedData || []).map((row: any) => row.get_blocked_user_ids ?? row);
+
     // 4. Keep your awesome relational query
     let baseQuery = supabase
       .from('videos')
       .select('id, creator_id, video_url, description, likes_count, category, users(username), audios(name)')
       .order('created_at', { ascending: false });
+
+    if (blockedIds.length > 0) {
+      baseQuery = baseQuery.not('creator_id', 'in', `(${blockedIds.join(',')})`);
+    }
     
     // --- ADD THIS NEW FOLLOWING FEED LOGIC ---
     if (selectedFeed === 'following') {
@@ -401,6 +409,12 @@ const fetchData = async (userId: string, selectedFeed: 'foryou' | 'following' = 
     if (!session?.user?.id) return Alert.alert('Login required', 'Please log in to donate.');
     if (session.user.id === receiverId) return Alert.alert('Not allowed', "You can't donate to yourself.");
     setDonateData({ videoId: videoIdOrAmount, receiverId, receiverName });
+  };
+
+  // Called after VideoPost successfully inserts a block row. Drop their
+  // videos out of the feed immediately rather than waiting for a refetch.
+  const handleBlockUser = (blockedUserId: string) => {
+    setVideos((prev) => prev.filter((v) => v.creator_id !== blockedUserId));
   };
 
   const processDonation = async (amount: number) => {
@@ -562,6 +576,7 @@ return (
               onOpenComments={setCommentVideoId}
               onDonate={handleOpenDonate}
               itemHeight={ITEM_HEIGHT}
+              onBlock={handleBlockUser}
             />
           )}
           keyExtractor={item => item.id}
