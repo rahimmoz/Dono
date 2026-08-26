@@ -1,5 +1,6 @@
-import React, { useEffect, useState } from 'react';
-import { ActivityIndicator, FlatList, Image, RefreshControl, StyleSheet, Text, View } from 'react-native';
+import { useRouter } from 'expo-router';
+import { useEffect, useState } from 'react';
+import { ActivityIndicator, FlatList, Image, RefreshControl, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { supabase } from '../../supabase';
 
@@ -12,6 +13,7 @@ type Creator = {
 
 export default function LeaderboardScreen() {
   const insets = useSafeAreaInsets();
+  const router = useRouter();
   const [creators, setCreators] = useState<Creator[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -72,7 +74,10 @@ export default function LeaderboardScreen() {
         renderItem={({ item, index }) => {
           const isTopThree = index < 3;
           return (
-            <View style={[styles.row, isTopThree && styles.topThreeRow]}>
+            <TouchableOpacity
+              style={[styles.row, isTopThree && styles.topThreeRow]}
+              onPress={() => router.push({ pathname: '/user/[id]', params: { id: item.id } })}
+            >
               <View style={styles.rankContainer}>
                 {renderBadge(index)}
               </View>
@@ -94,7 +99,7 @@ export default function LeaderboardScreen() {
                 <Text style={[styles.score, isTopThree && styles.topThreeScore]}>{item.total_received}</Text>
                 <Text style={styles.coin}>🪙</Text>
               </View>
-            </View>
+            </TouchableOpacity>
           );
         }}
       />

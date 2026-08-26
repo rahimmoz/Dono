@@ -1,5 +1,5 @@
 import * as Device from 'expo-device';
-import { router, useLocalSearchParams } from 'expo-router';
+import { router, useIsFocused, useLocalSearchParams } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { useEffect, useRef, useState } from 'react';
 import {
@@ -139,7 +139,10 @@ const CommentModal = ({ videoId, currentUserId, onClose }: { videoId: string | n
             showsVerticalScrollIndicator={false}
             contentContainerStyle={{ paddingVertical: 10 }}
             renderItem={({ item }) => (
-              <View style={styles.commentItem}>
+              <TouchableOpacity
+                style={styles.commentItem}
+                onPress={() => item.user_id && router.push({ pathname: '/user/[id]', params: { id: item.user_id } })}
+              >
                 {item.users?.avatar_url ? (
                   <Image source={{ uri: item.users.avatar_url }} style={styles.commentAvatarImg} />
                 ) : (
@@ -151,7 +154,7 @@ const CommentModal = ({ videoId, currentUserId, onClose }: { videoId: string | n
                   <Text style={styles.commentUser}>@{item.users?.username}</Text>
                   <Text style={styles.commentText}>{item.content}</Text>
                 </View>
-              </View>
+              </TouchableOpacity>
             )} 
           />
           <View style={styles.commentInputContainer}>
@@ -237,6 +240,13 @@ const DonationAnimation = ({ donation, onComplete }: { donation: { amount: numbe
 // ==========================================
 export default function App() {
   const insets = useSafeAreaInsets(); 
+
+  // expo-router's tab navigator keeps every tab mounted in the background by
+  // default -- switching tabs doesn't unmount Home, so a playing video just
+  // keeps playing (and keeps making sound) behind whichever tab you're now
+  // on. useIsFocused tells us when Home itself isn't the visible screen, so
+  // we can force every video inactive regardless of scroll position.
+  const isScreenFocused = useIsFocused();
 
   // VideoPost items were sized to the full window height, but they render
   // inside the (tabs) screen, which has a bottom tab bar eating into the
@@ -462,13 +472,50 @@ const fetchData = async (userId: string, selectedFeed: 'foryou' | 'following' = 
 
   const { startId } = useLocalSearchParams();
   const flatListRef = useRef<FlatList>(null);
+  const handledStartId = useRef<string | null>(null);
 
   useEffect(() => {
-    if (startId && videos.length > 0) {
-      const index = videos.findIndex(v => v.id === startId);
-      if (index !== -1) setTimeout(() => { flatListRef.current?.scrollToIndex({ index, animated: false }); }, 100);
-    }
-  }, [startId, videos]);
+    if (!startId || isLoading || handledStartId.current === startId) return;
+
+    const jumpToVideo = async () => {
+      const existingIndex = videos.findIndex(v => v.id === startId);
+
+      if (existingIndex !== -1) {
+        handledStartId.current = startId as string;
+        setTimeout(() => flatListRef.current?.scrollToIndex({ index: existingIndex, animated: false }), 100);
+        return;
+      }
+
+      // Not in the currently-loaded page (feed only loads 5 at a time) --
+      // this is why tapping a video from a profile/leaderboard/explore often
+      // did nothing. Fetch that one video directly and prepend it so we can
+      // actually jump to it.
+      const { data } = await supabase
+        .from('videos')
+        .select('id, creator_id, video_url, description, likes_count, category, users(username), audios(name)')
+        .eq('id', startId)
+        .single();
+
+      if (data) {
+        handledStartId.current = startId as string;
+        const mapped = {
+          id: data.id,
+          creator: (Array.isArray(data.users) ? data.users[0]?.username : (data.users as any)?.username) ?? '',
+          creator_id: data.creator_id,
+          video_url: data.video_url,
+          description: data.description,
+          likes_count: data.likes_count ?? 0,
+          category: data.category,
+          audios: Array.isArray(data.audios) ? (data.audios[0] ?? null) : (data.audios ?? null),
+        } as VideoItem;
+
+        setVideos((prev) => [mapped, ...prev.filter((v) => v.id !== mapped.id)]);
+        setTimeout(() => flatListRef.current?.scrollToIndex({ index: 0, animated: false }), 100);
+      }
+    };
+
+    jumpToVideo();
+  }, [startId, videos, isLoading]);
 
   // Registers this device for push notifications and saves the token to the
   // user's row. Only works in a development build / production build --
@@ -571,7 +618,7 @@ return (
           renderItem={({ item }) => (
             <VideoPost 
               video={item} 
-              isActive={activeVideoId === item.id} 
+              isActive={isScreenFocused && activeVideoId === item.id} 
               currentUserId={session?.user?.id} 
               onOpenComments={setCommentVideoId}
               onDonate={handleOpenDonate}

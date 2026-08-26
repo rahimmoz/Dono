@@ -1,3 +1,4 @@
+import { useRouter } from 'expo-router';
 import { useEffect, useState } from 'react';
 import { ActivityIndicator, FlatList, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -5,6 +6,7 @@ import { supabase } from '../../supabase';
 
 export default function SearchScreen() {
   const insets = useSafeAreaInsets();
+  const router = useRouter();
   
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
@@ -119,14 +121,19 @@ export default function SearchScreen() {
             const isFollowing = followingIds.includes(item.id);
             return (
               <View style={styles.userCard}>
-                <View style={styles.avatarCircle}>
-                  <Text style={styles.avatarText}>{item.username.charAt(0).toUpperCase()}</Text>
-                </View>
-                
-                <View style={styles.userInfo}>
-                  <Text style={styles.username}>@{item.username}</Text>
-                  {item.bio ? <Text style={styles.bio} numberOfLines={1}>{item.bio}</Text> : null}
-                </View>
+                <TouchableOpacity
+                  style={{ flexDirection: 'row', alignItems: 'center', flex: 1 }}
+                  onPress={() => router.push({ pathname: '/user/[id]', params: { id: item.id } } as any)}
+                >
+                  <View style={styles.avatarCircle}>
+                    <Text style={styles.avatarText}>{item.username.charAt(0).toUpperCase()}</Text>
+                  </View>
+
+                  <View style={styles.userInfo}>
+                    <Text style={styles.username}>@{item.username}</Text>
+                    {item.bio ? <Text style={styles.bio} numberOfLines={1}>{item.bio}</Text> : null}
+                  </View>
+                </TouchableOpacity>
 
                 <TouchableOpacity 
                   style={[styles.followBtn, isFollowing && styles.followingBtn]} 

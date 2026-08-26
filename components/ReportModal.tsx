@@ -51,7 +51,7 @@ export default function ReportModal({ visible, onClose, onSubmit, targetLabel }:
 }
 
 const styles = StyleSheet.create({
-  backdrop: { flex: 1, backgroundColor: 'rgba(249, 249, 249, 0.6)', justifyContent: 'flex-end' },
+  backdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.6)', justifyContent: 'flex-end' },
   closeArea: { flex: 1 },
   sheet: { backgroundColor: '#111', borderTopLeftRadius: 25, borderTopRightRadius: 25, padding: 25 },
   title: { color: '#fff', fontSize: 18, fontWeight: 'bold', marginBottom: 4 },

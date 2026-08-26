@@ -1,3 +1,4 @@
+import { useRouter } from 'expo-router';
 import { useVideoPlayer, VideoView } from 'expo-video';
 import { useEffect, useRef, useState } from 'react';
 import {
@@ -47,6 +48,7 @@ type VideoPostProps = {
 // ==========================================
 const VideoPost = ({ video, onDonate, isActive, currentUserId, onOpenComments, itemHeight, onBlock }: VideoPostProps) => {
 
+  const router = useRouter();
   const [isPaused, setIsPaused] = useState(false);
   const [isLiked, setIsLiked] = useState(false);
   const [likeCount, setLikeCount] = useState(video.likes_count || 0); 
@@ -251,7 +253,9 @@ const VideoPost = ({ video, onDonate, isActive, currentUserId, onOpenComments, i
       <View style={styles.uiOverlay} pointerEvents="box-none">
         <View style={styles.bottomLeft}>
           <View style={styles.creatorRow}>
-            <Text style={styles.creatorText}>{video.creator}</Text>
+            <TouchableOpacity onPress={() => router.push({ pathname: '/user/[id]', params: { id: video.creator_id } })}>
+              <Text style={styles.creatorText}>{video.creator}</Text>
+            </TouchableOpacity>
             {currentUserId && currentUserId !== video.creator_id && (
               <TouchableOpacity style={[styles.followBtn, isFollowing ? styles.followingBtn : null]} onPress={handleFollow}>
                 <Text style={styles.followBtnText}>{isFollowing ? 'Following' : 'Follow'}</Text>
@@ -274,7 +278,7 @@ const VideoPost = ({ video, onDonate, isActive, currentUserId, onOpenComments, i
           </TouchableOpacity>
           {currentUserId && currentUserId !== video.creator_id && (
             <TouchableOpacity style={styles.actionButton} onPress={handleOpenOptions}>
-              <Text style={[styles.actionIcon, { color: '#fff' }]}>⋯</Text>
+              <Text style={styles.actionIcon}>⋯</Text>
             </TouchableOpacity>
           )}
           <Animated.View style={[styles.recordContainer, { transform: [{ rotate: spin }] }]}><Text style={styles.recordIcon}>💿</Text></Animated.View>

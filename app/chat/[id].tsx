@@ -32,11 +32,21 @@ export default function ChatScreen() {
   };
 
   // 1. Initial Setup: Auth & Fetching
+  // A unique suffix per mounted instance of this screen. Without this, opening
+  // the same chat via two different navigation paths (inbox vs. a profile's
+  // "Message" button, or navigating away and back quickly) can leave a
+  // previous instance's channel still subscribed under the same topic name,
+  // which is exactly what throws "cannot add postgres_changes... after
+  // subscribe" -- two channel objects fighting over one topic.
+  const channelInstanceId = useRef(Math.random().toString(36).slice(2)).current;
+
   useEffect(() => {
     let channel: any;
+    let isCancelled = false;
 
     const setupChat = async () => {
       const { data: { session } } = await supabase.auth.getSession();
+      if (isCancelled) return;
       if (session?.user) {
         const myId = session.user.id;
         setCurrentUserId(myId);
@@ -44,11 +54,12 @@ export default function ChatScreen() {
         markAsRead(myId);
 
         const { data: myProfile } = await supabase.from('users').select('username').eq('id', myId).single();
+        if (isCancelled) return;
         if (myProfile) setMyUsername(myProfile.username);
 
         // 2. Real-time Subscription -- both new messages AND read-receipt updates
         channel = supabase
-          .channel(`chat:${id}`)
+          .channel(`chat:${id}:${channelInstanceId}`)
           .on(
             'postgres_changes',
             { event: 'INSERT', schema: 'public', table: 'messages' },
@@ -94,6 +105,7 @@ export default function ChatScreen() {
     setupChat();
 
     return () => {
+      isCancelled = true;
       if (channel) supabase.removeChannel(channel);
     };
   }, [id]);
@@ -209,7 +221,9 @@ const fetchMessages = async (userId?: string, isLoadMore = false) => {
         <TouchableOpacity onPress={() => router.back()} style={styles.backBtnWrapper}>
           <Text style={styles.backBtn}>←</Text>
         </TouchableOpacity>
-        <Text style={styles.headerTitle}>@{name}</Text>
+        <TouchableOpacity onPress={() => router.push({ pathname: '/user/[id]', params: { id: id as string } })}>
+          <Text style={styles.headerTitle}>@{name}</Text>
+        </TouchableOpacity>
         <TouchableOpacity onPress={handleOpenOptions} style={styles.optionsBtnWrapper}>
           <Text style={styles.backBtn}>⋯</Text>
         </TouchableOpacity>

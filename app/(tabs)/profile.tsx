@@ -198,7 +198,11 @@ export default function ProfileScreen() {
       <FlatList
         data={myVideos} numColumns={3} keyExtractor={(item) => item.id}
         renderItem={({ item }) => (
-          <TouchableOpacity style={styles.videoThumbnail} onLongPress={() => confirmDelete(item.id, item.video_url)}>
+          <TouchableOpacity
+            style={styles.videoThumbnail}
+            onPress={() => router.push({ pathname: '/', params: { startId: item.id } })}
+            onLongPress={() => confirmDelete(item.id, item.video_url)}
+          >
             
             {item.thumbnail_url ? (
               <Image source={{ uri: item.thumbnail_url }} style={StyleSheet.absoluteFill} resizeMode="cover" />
