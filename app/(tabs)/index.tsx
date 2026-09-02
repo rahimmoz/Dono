@@ -5,7 +5,6 @@ import { useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
-  Animated,
   Dimensions,
   FlatList,
   Image,
@@ -21,6 +20,7 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import DonateModal from '../../components/DonateModal';
+import DonationAnimation from '../../components/DonationAnimation';
 import { supabase } from '../../supabase';
 
 import VideoPost from '../../components/VideoPost';
@@ -173,65 +173,6 @@ const CommentModal = ({ videoId, currentUserId, onClose }: { videoId: string | n
         </View>
       </KeyboardAvoidingView>
     </Modal>
-  );
-};
-
-// ==========================================
-// 🚨 NEW: 3. TIERED DONATION ANIMATION OVERLAY
-// ==========================================
-const DonationAnimation = ({ donation, onComplete }: { donation: { amount: number, receiver: string } | null, onComplete: () => void }) => {
-  const opacity = useRef(new Animated.Value(0)).current;
-  const scale = useRef(new Animated.Value(0.5)).current;
-  const translateY = useRef(new Animated.Value(50)).current;
-
-  useEffect(() => {
-    if (donation) {
-      const isWhale = donation.amount >= 50;
-      
-      Animated.sequence([
-        Animated.parallel([
-          Animated.spring(scale, { toValue: isWhale ? 1.4 : 1, friction: 3, useNativeDriver: true }),
-          Animated.timing(opacity, { toValue: 1, duration: 300, useNativeDriver: true }),
-          Animated.timing(translateY, { toValue: 0, duration: 300, useNativeDriver: true })
-        ]),
-        // Hold the animation longer if they dropped a ton of coins
-        Animated.delay(isWhale ? 3500 : 1500),
-        Animated.parallel([
-          Animated.timing(opacity, { toValue: 0, duration: 300, useNativeDriver: true }),
-          Animated.timing(translateY, { toValue: -50, duration: 300, useNativeDriver: true })
-        ])
-      ]).start(() => {
-        scale.setValue(0.5);
-        translateY.setValue(50);
-        onComplete();
-      });
-    }
-  }, [donation]);
-
-  if (!donation) return null;
-
-  // Determine styles based on amount
-  let theme = { color: '#00FF00', title: 'NICE TIP!', shadow: '#00FF00', glow: 'rgba(0, 255, 0, 0.2)' };
-  if (donation.amount >= 5) theme = { color: '#00f2ea', title: 'GREAT DONATION!', shadow: '#00f2ea', glow: 'rgba(0, 242, 234, 0.3)' };
-  if (donation.amount >= 10) theme = { color: '#FFD700', title: 'GOLDEN SUPPORT!', shadow: '#FF8C00', glow: 'rgba(255, 215, 0, 0.4)' };
-  if (donation.amount >= 50) theme = { color: '#FF00FF', title: '🚨 WHALE DROP 🚨', shadow: '#FF00FF', glow: 'rgba(255, 0, 255, 0.6)' };
-
-  return (
-    <View style={StyleSheet.absoluteFill} pointerEvents="none">
-      {/* If it's a massive donation, flash a glowing neon border around the whole screen */}
-      {donation.amount >= 50 && (
-        <Animated.View style={[styles.neonBorder, { opacity, borderColor: theme.color }]} />
-      )}
-      
-      {/* The Central Animation */}
-      <View style={styles.animCenterContainer}>
-        <Animated.View style={[styles.animBox, { opacity, transform: [{ scale }, { translateY }], shadowColor: theme.shadow }]}>
-          <View style={[StyleSheet.absoluteFill, { backgroundColor: theme.glow, borderRadius: 20, shadowColor: theme.shadow, shadowOpacity: 0.8, shadowRadius: 20, elevation: 10 }]} />
-          <Text style={[styles.animTitle, { color: theme.color, textShadowColor: theme.shadow }]}>{theme.title}</Text>
-          <Text style={styles.animSub}>You sent <Text style={{fontWeight: 'bold', color: '#fff'}}>{donation.amount} 🪙</Text> to {donation.receiver}!</Text>
-        </Animated.View>
-      </View>
-    </View>
   );
 };
 
@@ -720,13 +661,6 @@ const styles = StyleSheet.create({
   commentInputContainer: { flexDirection: 'row', padding: 15, borderTopWidth: 1, borderTopColor: '#222', alignItems: 'center' },
   commentInput: { flex: 1, backgroundColor: '#222', color: '#fff', borderRadius: 20, paddingHorizontal: 15, paddingVertical: 10, marginRight: 10 },
   postBtnText: { color: '#00FF00', fontWeight: 'bold', fontSize: 16 },
-
-  // 🚨 NEW: ANIMATION STYLES
-  neonBorder: { ...StyleSheet.absoluteFill, borderWidth: 8, zIndex: 998 },
-  animCenterContainer: { ...StyleSheet.absoluteFill, justifyContent: 'center', alignItems: 'center', zIndex: 999 },
-  animBox: { padding: 30, alignItems: 'center', shadowOffset: { width: 0, height: 0 }, shadowOpacity: 1, shadowRadius: 30 },
-  animTitle: { fontSize: 36, fontWeight: '900', fontStyle: 'italic', marginBottom: 10, textShadowRadius: 15, textShadowOffset: { width: 0, height: 0 } },
-  animSub: { color: '#ccc', fontSize: 18, fontWeight: '600' },
 
   topRightActions: { 
   flex: 1, 
