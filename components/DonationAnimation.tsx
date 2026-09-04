@@ -130,7 +130,11 @@ function RippleRings({ color }: { color: string }) {
 // ============================================================
 
 type DonationAnimationProps = {
-  donation: { amount: number; receiver: string } | null;
+  // comboKey is unique per *streak session* (same sender+tier+receiver,
+  // freshly minted whenever the combo window lapses) -- comboCount rising
+  // with the same key means "same streak, one more hit"; a new key means
+  // "fresh gift, play the full entrance from scratch."
+  donation: { amount: number; receiver: string; comboKey: string; comboCount: number } | null;
   onComplete: () => void;
 };
 
@@ -140,23 +144,29 @@ export default function DonationAnimation({ donation, onComplete }: DonationAnim
   const translateY = useRef(new Animated.Value(50)).current;
   const shakeX = useRef(new Animated.Value(0)).current;
   const flash = useRef(new Animated.Value(0)).current;
+  const comboBadgeScale = useRef(new Animated.Value(1)).current;
 
   const [rainCoins, setRainCoins] = useState<any[]>([]);
   const [fireworkBursts, setFireworkBursts] = useState<any[]>([]);
   const [confettiParticles, setConfettiParticles] = useState<any[]>([]);
+  const [milestoneBurst, setMilestoneBurst] = useState<any[]>([]);
+  const [displayCount, setDisplayCount] = useState(1);
+
+  const prevComboKeyRef = useRef<string | null>(null);
+  const exitTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const tier = donation ? getTierForAmount(donation.amount) : null;
 
   useEffect(() => {
     if (!donation || !tier) return;
 
-    opacity.setValue(0);
-    scale.setValue(0.5);
-    translateY.setValue(50);
-    shakeX.setValue(0);
-    flash.setValue(0);
+    const isNewCombo = donation.comboKey !== prevComboKeyRef.current;
+    prevComboKeyRef.current = donation.comboKey;
+    setDisplayCount(donation.comboCount);
 
-    // Total on-screen time per tier -- bigger gifts linger longer.
+    // Total on-screen time per tier -- bigger gifts linger longer. Reused
+    // both for the initial entrance's hold time and to re-arm the exit on
+    // every combo increment, so a fast streak just keeps pushing it out.
     const totalDuration =
       tier.animation === 'spark' ? 1200 :
       tier.animation === 'ripple' ? 1800 :
@@ -165,77 +175,112 @@ export default function DonationAnimation({ donation, onComplete }: DonationAnim
       tier.animation === 'shake' ? 4100 :
       5500; // supernova
 
-    if (tier.animation === 'rain') {
-      setRainCoins(Array.from({ length: 10 }, (_, i) => ({
-        id: i,
-        startX: Math.random() * (SCREEN_WIDTH - 40),
-        delay: Math.random() * 800,
-        fallDuration: 1800 + Math.random() * 600,
-        drift: (Math.random() - 0.5) * 80,
-      })));
-    } else {
-      setRainCoins([]);
-    }
+    if (isNewCombo) {
+      opacity.setValue(0);
+      scale.setValue(0.5);
+      translateY.setValue(50);
+      shakeX.setValue(0);
+      flash.setValue(0);
+      comboBadgeScale.setValue(1);
 
-    if (tier.animation === 'fireworks') {
-      setFireworkBursts([
-        { x: SCREEN_WIDTH * 0.28, y: SCREEN_HEIGHT * 0.35, delay: 0 },
-        { x: SCREEN_WIDTH * 0.72, y: SCREEN_HEIGHT * 0.3, delay: 400 },
-        { x: SCREEN_WIDTH * 0.5, y: SCREEN_HEIGHT * 0.45, delay: 850 },
-      ]);
-    } else {
-      setFireworkBursts([]);
-    }
+      if (tier.animation === 'rain') {
+        setRainCoins(Array.from({ length: 10 }, (_, i) => ({
+          id: i,
+          startX: Math.random() * (SCREEN_WIDTH - 40),
+          delay: Math.random() * 800,
+          fallDuration: 1800 + Math.random() * 600,
+          drift: (Math.random() - 0.5) * 80,
+        })));
+      } else {
+        setRainCoins([]);
+      }
 
-    if (tier.animation === 'supernova') {
-      setConfettiParticles(Array.from({ length: 26 }, (_, i) => ({
-        id: i,
-        angle: Math.random() * Math.PI * 2,
-        distance: 110 + Math.random() * 160,
-        color: [tier.color, '#FFD700', '#00f2ea', '#fff'][i % 4],
-        delay: Math.random() * 300,
-      })));
-    } else {
-      setConfettiParticles([]);
-    }
+      if (tier.animation === 'fireworks') {
+        setFireworkBursts([
+          { x: SCREEN_WIDTH * 0.28, y: SCREEN_HEIGHT * 0.35, delay: 0 },
+          { x: SCREEN_WIDTH * 0.72, y: SCREEN_HEIGHT * 0.3, delay: 400 },
+          { x: SCREEN_WIDTH * 0.5, y: SCREEN_HEIGHT * 0.45, delay: 850 },
+        ]);
+      } else {
+        setFireworkBursts([]);
+      }
 
-    const entranceScale = tier.animation === 'supernova' ? 1.3 : tier.animation === 'shake' ? 1.4 : 1;
+      if (tier.animation === 'supernova') {
+        setConfettiParticles(Array.from({ length: 26 }, (_, i) => ({
+          id: i,
+          angle: Math.random() * Math.PI * 2,
+          distance: 110 + Math.random() * 160,
+          color: [tier.color, '#FFD700', '#00f2ea', '#fff'][i % 4],
+          delay: Math.random() * 300,
+        })));
+      } else {
+        setConfettiParticles([]);
+      }
 
-    Animated.sequence([
+      const entranceScale = tier.animation === 'supernova' ? 1.3 : tier.animation === 'shake' ? 1.4 : 1;
+
       Animated.parallel([
         Animated.spring(scale, { toValue: entranceScale, friction: 3, useNativeDriver: true }),
         Animated.timing(opacity, { toValue: 1, duration: 300, useNativeDriver: true }),
         Animated.timing(translateY, { toValue: 0, duration: 300, useNativeDriver: true }),
-      ]),
-      Animated.delay(totalDuration - 600),
+      ]).start();
+
+      if (tier.animation === 'shake') {
+        Animated.sequence([
+          Animated.delay(250),
+          Animated.timing(shakeX, { toValue: 12, duration: 60, useNativeDriver: true }),
+          Animated.timing(shakeX, { toValue: -12, duration: 60, useNativeDriver: true }),
+          Animated.timing(shakeX, { toValue: 8, duration: 60, useNativeDriver: true }),
+          Animated.timing(shakeX, { toValue: -8, duration: 60, useNativeDriver: true }),
+          Animated.timing(shakeX, { toValue: 0, duration: 60, useNativeDriver: true }),
+        ]).start();
+      }
+
+      if (tier.animation === 'supernova') {
+        Animated.sequence([
+          Animated.timing(flash, { toValue: 1, duration: 150, useNativeDriver: true }),
+          Animated.timing(flash, { toValue: 0, duration: 450, useNativeDriver: true }),
+        ]).start();
+      }
+    } else {
+      // Same streak, one more hit -- pulse the xN badge instead of
+      // re-triggering the whole entrance (rain/fireworks/confetti already in
+      // flight are left alone rather than respawned).
+      Animated.sequence([
+        Animated.spring(comboBadgeScale, { toValue: 1.35, friction: 3, useNativeDriver: true }),
+        Animated.spring(comboBadgeScale, { toValue: 1, friction: 4, useNativeDriver: true }),
+      ]).start();
+    }
+
+    // Bonus flourish every 5 hits in a streak (x5, x10, x20...) -- even a
+    // Spark streak gets to feel like a bigger moment.
+    if (donation.comboCount > 1 && donation.comboCount % 5 === 0) {
+      setMilestoneBurst(Array.from({ length: 18 }, (_, i) => ({
+        id: `${donation.comboKey}-${donation.comboCount}-${i}`,
+        angle: (i / 18) * Math.PI * 2,
+        distance: 90 + Math.random() * 70,
+        color: [tier.color, '#FFD700', '#fff'][i % 3],
+      })));
+    }
+
+    if (exitTimerRef.current) clearTimeout(exitTimerRef.current);
+    exitTimerRef.current = setTimeout(() => {
       Animated.parallel([
         Animated.timing(opacity, { toValue: 0, duration: 300, useNativeDriver: true }),
         Animated.timing(translateY, { toValue: -50, duration: 300, useNativeDriver: true }),
-      ]),
-    ]).start(() => {
-      scale.setValue(0.5);
-      translateY.setValue(50);
-      onComplete();
-    });
-
-    if (tier.animation === 'shake') {
-      Animated.sequence([
-        Animated.delay(250),
-        Animated.timing(shakeX, { toValue: 12, duration: 60, useNativeDriver: true }),
-        Animated.timing(shakeX, { toValue: -12, duration: 60, useNativeDriver: true }),
-        Animated.timing(shakeX, { toValue: 8, duration: 60, useNativeDriver: true }),
-        Animated.timing(shakeX, { toValue: -8, duration: 60, useNativeDriver: true }),
-        Animated.timing(shakeX, { toValue: 0, duration: 60, useNativeDriver: true }),
-      ]).start();
-    }
-
-    if (tier.animation === 'supernova') {
-      Animated.sequence([
-        Animated.timing(flash, { toValue: 1, duration: 150, useNativeDriver: true }),
-        Animated.timing(flash, { toValue: 0, duration: 450, useNativeDriver: true }),
-      ]).start();
-    }
+      ]).start(() => {
+        scale.setValue(0.5);
+        translateY.setValue(50);
+        setMilestoneBurst([]);
+        prevComboKeyRef.current = null;
+        onComplete();
+      });
+    }, totalDuration - 600);
   }, [donation]);
+
+  useEffect(() => () => {
+    if (exitTimerRef.current) clearTimeout(exitTimerRef.current);
+  }, []);
 
   if (!donation || !tier) return null;
 
@@ -269,9 +314,24 @@ export default function DonationAnimation({ donation, onComplete }: DonationAnim
         </View>
       )}
 
+      {milestoneBurst.length > 0 && (
+        <View style={[styles.originPoint, { left: SCREEN_WIDTH / 2, top: SCREEN_HEIGHT / 2 }]} pointerEvents="none">
+          {milestoneBurst.map((p) => (
+            <Particle key={p.id} angle={p.angle} distance={p.distance} color={p.color} delay={0} size={9} duration={800} />
+          ))}
+        </View>
+      )}
+
       <View style={styles.animCenterContainer}>
         <Animated.View style={[styles.animBox, { opacity, transform: [{ scale }, { translateY }, { translateX: shakeX }], shadowColor: tier.color }]}>
           <View style={[StyleSheet.absoluteFill, { backgroundColor: tier.glow, borderRadius: 20, shadowColor: tier.color, shadowOpacity: 0.8, shadowRadius: 20, elevation: 10 }]} />
+
+          {displayCount > 1 && (
+            <Animated.View style={[styles.comboBadge, { borderColor: tier.color, transform: [{ scale: comboBadgeScale }] }]}>
+              <Text style={[styles.comboBadgeText, { color: tier.color }]}>x{displayCount}</Text>
+            </Animated.View>
+          )}
+
           <Text style={styles.tierIcon}>{tier.icon}</Text>
           <Text style={[styles.animTitle, { color: tier.color, textShadowColor: tier.color }]}>{tier.name.toUpperCase()}!</Text>
           <Text style={styles.animSub}>You sent <Text style={{ fontWeight: 'bold', color: '#fff' }}>{donation.amount} 🪙</Text> to {donation.receiver}!</Text>
@@ -289,4 +349,16 @@ const styles = StyleSheet.create({
   tierIcon: { fontSize: 40, marginBottom: 6 },
   animTitle: { fontSize: 32, fontWeight: '900', fontStyle: 'italic', marginBottom: 10, textShadowRadius: 15, textShadowOffset: { width: 0, height: 0 } },
   animSub: { color: '#ccc', fontSize: 18, fontWeight: '600' },
+  comboBadge: {
+    position: 'absolute',
+    top: -14,
+    right: -14,
+    backgroundColor: '#000',
+    borderWidth: 2,
+    borderRadius: 16,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    zIndex: 1000,
+  },
+  comboBadgeText: { fontSize: 16, fontWeight: '900' },
 });

@@ -21,6 +21,8 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import DonateModal from '../../components/DonateModal';
 import DonationAnimation from '../../components/DonationAnimation';
+import GiftStreakBadge from '../../components/GiftStreakBadge';
+import { getTierForAmount } from '../../constants/gifts';
 import { supabase } from '../../supabase';
 
 import VideoPost from '../../components/VideoPost';
@@ -215,8 +217,25 @@ export default function App() {
 
   const [donateData, setDonateData] = useState<{videoId: string, receiverId: string, receiverName: string} | null>(null);
   
-  // 🚨 NEW: State to trigger the massive floating animation
-  const [activeDonationAnim, setActiveDonationAnim] = useState<{amount: number, receiver: string} | null>(null);
+  // Drives the sender's own full-screen tiered animation.
+  const [activeDonationAnim, setActiveDonationAnim] = useState<{amount: number, receiver: string, comboKey: string, comboCount: number} | null>(null);
+
+  // Tracks the sender's own rapid-repeat streak: same sender + same tier +
+  // same receiver within COMBO_WINDOW_MS counts as one growing combo instead
+  // of restarting the animation from scratch every tap. sessionId makes
+  // comboKey unique per *streak*, not just per (sender, tier, receiver) --
+  // otherwise donating the same tier to the same person again an hour later
+  // would be mistaken for a continuing combo.
+  const comboRef = useRef<{ baseKey: string; count: number; lastTs: number; sessionId: number } | null>(null);
+  const COMBO_WINDOW_MS = 2500;
+
+  // Minimized corner badge shown to everyone *else* watching the active
+  // video -- driven by realtime broadcasts from other viewers' donations,
+  // separate from this device's own combo state above.
+  const [giftStreak, setGiftStreak] = useState<{ tierName: string; icon: string; color: string; count: number } | null>(null);
+  const activeVideoChannelRef = useRef<any>(null);
+  const activeVideoChannelIdRef = useRef<string | null>(null);
+  const giftStreakHideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const viewabilityConfigCallbackPairs = useRef([
     {
@@ -368,6 +387,42 @@ const fetchData = async (userId: string, selectedFeed: 'foryou' | 'following' = 
     setVideos((prev) => prev.filter((v) => v.creator_id !== blockedUserId));
   };
 
+  // Subscribe to the currently active video's live gift stream so other
+  // viewers see the minimized streak badge. Re-subscribes whenever the
+  // visible video changes; only one channel is ever open at a time.
+  useEffect(() => {
+    if (activeVideoChannelRef.current) {
+      supabase.removeChannel(activeVideoChannelRef.current);
+      activeVideoChannelRef.current = null;
+      activeVideoChannelIdRef.current = null;
+    }
+    setGiftStreak(null);
+
+    if (!activeVideoId) return;
+
+    const channel = supabase
+      .channel(`video:${activeVideoId}:gifts`)
+      .on('broadcast', { event: 'gift_streak' }, ({ payload }) => {
+        // The sender already sees their own full animation -- don't also
+        // show them the minimized corner badge for their own gift.
+        if (payload.senderId === session?.user?.id) return;
+
+        setGiftStreak({ tierName: payload.tierName, icon: payload.icon, color: payload.color, count: payload.count });
+
+        if (giftStreakHideTimerRef.current) clearTimeout(giftStreakHideTimerRef.current);
+        giftStreakHideTimerRef.current = setTimeout(() => setGiftStreak(null), 3000);
+      })
+      .subscribe();
+
+    activeVideoChannelRef.current = channel;
+    activeVideoChannelIdRef.current = activeVideoId;
+
+    return () => {
+      supabase.removeChannel(channel);
+      if (giftStreakHideTimerRef.current) clearTimeout(giftStreakHideTimerRef.current);
+    };
+  }, [activeVideoId, session?.user?.id]);
+
   const processDonation = async (amount: number) => {
     if (!session?.user?.id || !donateData || isDonating) return;
 
@@ -394,14 +449,50 @@ const fetchData = async (userId: string, selectedFeed: 'foryou' | 'following' = 
 
       // 2. Update local wallet instantly
       setWalletBalance((prev) => prev - amount);
-      
-      // 3. Trigger your awesome tiered animation!
-      setActiveDonationAnim({ amount, receiver: donateData.receiverName });
-      
-      // 4. Close the modal
+
+      // 3. Work out whether this continues a rapid-repeat streak (same
+      // sender + same tier + same receiver within the combo window) or
+      // starts a fresh one.
+      const tier = getTierForAmount(amount);
+      const baseKey = `${session.user.id}:${tier.name}:${donateData.receiverId}`;
+      const now = Date.now();
+      const prevCombo = comboRef.current;
+      let comboCount = 1;
+      let sessionId = now;
+      if (prevCombo && prevCombo.baseKey === baseKey && now - prevCombo.lastTs < COMBO_WINDOW_MS) {
+        comboCount = prevCombo.count + 1;
+        sessionId = prevCombo.sessionId;
+      }
+      comboRef.current = { baseKey, count: comboCount, lastTs: now, sessionId };
+      const comboKey = `${baseKey}:${sessionId}`;
+
+      // 4. Trigger the sender's own full tiered animation -- escalates in
+      // place (badge pulse + milestone flourishes) rather than restarting
+      // if this is a combo continuation.
+      setActiveDonationAnim({ amount, receiver: donateData.receiverName, comboKey, comboCount });
+
+      // 5. Let everyone else watching this video know, so they see the
+      // minimized corner streak badge. Fire-and-forget -- never blocks the
+      // sender's own animation on network latency.
+      const streakPayload = { senderId: session.user.id, tierName: tier.name, icon: tier.icon, color: tier.color, count: comboCount };
+      if (activeVideoChannelRef.current && activeVideoChannelIdRef.current === donateData.videoId) {
+        activeVideoChannelRef.current.send({ type: 'broadcast', event: 'gift_streak', payload: streakPayload });
+      } else {
+        // Donating on a video other than the currently-subscribed active one
+        // (edge case) -- open a short-lived channel just to publish.
+        const tempChannel = supabase.channel(`video:${donateData.videoId}:gifts`);
+        tempChannel.subscribe((status: string) => {
+          if (status === 'SUBSCRIBED') {
+            tempChannel.send({ type: 'broadcast', event: 'gift_streak', payload: streakPayload });
+            setTimeout(() => supabase.removeChannel(tempChannel), 500);
+          }
+        });
+      }
+
+      // 6. Close the modal
       setDonateData(null);
 
-      // 5. Fire your Push Notification (Keep your existing logic!)
+      // 7. Fire your Push Notification (Keep your existing logic!)
       // (Optional: You can paste your fetch('https://exp.host...') push logic right here)
 
     } catch (err) {
@@ -592,11 +683,14 @@ return (
         onDonate={processDonation}
       />
 
-      {/* 🚨 NEW: Render the massive floating animation on top of everything! */}
+      {/* Sender's own full-screen tiered animation. */}
       <DonationAnimation 
         donation={activeDonationAnim} 
         onComplete={() => setActiveDonationAnim(null)} 
       />
+
+      {/* Minimized streak badge for everyone else watching this video. */}
+      <GiftStreakBadge streak={giftStreak} topOffset={insets.top} />
 
       <StatusBar style="light" />
     </View>
